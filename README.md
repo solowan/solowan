@@ -55,6 +55,25 @@ Installation
         make
         make install
 
+Docker configuration
+
+    OpenNOP-SoloWAN is able to run inside a docker container. 
+
+    - Download and install docker software. Refer to docker's official website for 
+      installation instructions (https://docs.docker.com/installation)
+
+    - Run OpenNOP-SoloWAN container:
+
+	> docker run -d --privileged --net=host germanmg/solowan:0.2 \
+          /home/solowan/opennop/opennop-daemon/opennopd/opennopd -n
+
+    - Edit configuration parameters
+
+	> docker ps -a --no-trunc -q    # Get Container ID
+	> docker attach -n <container-id> vi /etc/opennop/opennop.conf
+	> docker stop <container-id>    # Stop the container
+	> docker start <container-id>
+
 Manual
 
   OpenNOP daemon
