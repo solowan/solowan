@@ -55,6 +55,25 @@ Installation
         make
         make install
 
+Docker configuration
+
+    OpenNOP-SoloWAN is able to run inside a docker container.
+
+    - Download and install docker software. Refer to docker's official website for
+      installation instructions (https://docs.docker.com/installation)
+
+    - Run OpenNOP-SoloWAN container:
+
+	> docker run -d --privileged --net=host germanmg/solowan:0.2 \
+          /home/solowan/opennop/opennop-daemon/opennopd/opennopd -n
+
+    - Edit configuration parameters
+
+	> docker ps -a --no-trunc -q    # Get Container ID
+	> docker attach -n <container-id> vi /etc/opennop/opennop.conf
+	> docker stop <container-id>    # Stop the container
+	> docker start <container-id>
+
 Manual
 
   OpenNOP daemon
@@ -87,7 +106,30 @@ Manual
       - pkt_size. Maximum size of packets in bytes. Should be aligned with 
         the maximum transmission unit (MTU). 
         Defaults to: 1500.
+      - fp_per_pkt. Number of FPs calculated per packet. 
+        Defaults to: 32. 
+        Maximum value to: 32.
+      - fps_factor. FP hash table factor. The size of FP hash table is calculated multiplying num_pkt_cache_size by fps_factor. 
+        Defaults to: 4. 
+        Maximum value: 4.
 
+  Memory usage: A rough estimate of the memory required by the optimizer's data structures is given by (in bytes):
+
+      2 x thrnum x num_pkt_cache_size x (pkt_size + 64 x fp_per_pkt x fps_factor)
+
+      Where:
+
+          thrnum = Number of threads used for deduplication tasks. If you have enough RAM, the ideal value should be the number of cores of your CPU, but it can work with a single thread.
+          num_pkt_cache_size = Maximum number of packets that can be cached by the optimizer. The larger, the better (more redundancy can be detected as the system has more memory).
+          pkt_size = Maximum packet size (bytes). The default value is the Ethernet MTU (1500 B). This value should not be modified in most environments.
+          fp_per_pkt = Number of patterns detected in each cached packet. The maximum value is 32. The larger, the better (more patterns can be identified for each cached packet). So, 32 is the best choice, but 16 can yield good results.
+          fps_factor = Used to adjust the number of entries of a hash table. The recommended value is 2.
+
+      You should also take into account that the operating system also needs enough RAM to work, in addition to the memory occupied by the optimizer, so the optimizer PC must have a memory size larger than the previous estimate.
+      
+      If your RAM is limited, a reasonable parameter choice is: single thread, 1500 B packet size, fp_per_pkt=16, fps_factor=2, and adjust num_pkt_cache_size to be as large as possible.  If you have more RAM, set fps_per_pkt to 32 and adjust num_pkt_cache_size to be as large as possible. If RAM size is large, you can also increase thrnum to improve performance.
+
+      
   OpenNOP command line client. It allows interacting with opennopd to change 
   configuration and get information from it. 
 

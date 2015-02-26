@@ -11,9 +11,6 @@ AM_LDFLAGS = $(LIBCONFIG_LIBS)
 bin_PROGRAMS = opennop/opennop
 sbin_PROGRAMS = opennopd/opennopd
 
-lib_clstat_SOURCES = \
-	lib/clstat.c
-
 opennop_opennop_SOURCES = \
 	opennop/opennop.c
 opennop_opennop_LDADD = -lutil -lreadline -lpthread

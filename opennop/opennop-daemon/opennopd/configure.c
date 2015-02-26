@@ -156,6 +156,7 @@ int configure(char *path, __u32 *localID, __u32 *packet_number, __u32 *packet_si
 					token = strtok( NULL, "\t =\n\r");
 					sscanf(token, "%u", fpPerPkt);
 					if(*fpPerPkt>0){
+                                                *fpPerPkt = round_down_to_power_of_2(*fpPerPkt);
 						sprintf(message, "%u\n", *fpPerPkt);
 						logger(LOG_INFO, message);
 						sprintf(message, "Number of FP per packet %u\n", *fpPerPkt);
@@ -170,6 +171,7 @@ int configure(char *path, __u32 *localID, __u32 *packet_number, __u32 *packet_si
 					token = strtok( NULL, "\t =\n\r");
 					sscanf(token, "%u", fpsFactor);
 					if(*fpsFactor>0){
+                                                *fpsFactor = round_down_to_power_of_2(*fpsFactor);
 						sprintf(message, "%u\n", *fpsFactor);
 						logger(LOG_INFO, message);
 						sprintf(message, "FP hash table factor %u\n", *fpsFactor);
