@@ -64,8 +64,7 @@ Docker configuration
 
     - Run OpenNOP-SoloWAN container:
 
-	> docker run -d --privileged --net=host germanmg/solowan:0.2 \
-          /home/solowan/opennop/opennop-daemon/opennopd/opennopd -n
+	> docker run -d --privileged --net=host solowan/solowan:v0.1 opennopd -n
 
     - Edit configuration parameters
 
