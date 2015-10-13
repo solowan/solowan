@@ -49,7 +49,7 @@ Installation
             yum install ...
 
     - Compile and install:
-        cd solowan/opennopd/opennop-daemon
+        cd solowan/opennop/opennop-daemon
         ./autogen.sh 
         ./configure
         make
