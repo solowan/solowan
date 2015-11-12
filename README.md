@@ -20,13 +20,9 @@ Copyright (C) 2014 Center for Open Middleware (COM), Universidad Politécnica de
 ## References
 
    SoloWAN: solowan@centeropenmiddleware.com
-      https://github.com/centeropenmiddleware/solowan/wiki
 
-   OpenNOP:
-      http://www.opennop.org
+   OpenNOP: http://www.opennop.org
 
-   Center for Open Middleware (COM):
-      http://www.centeropenmiddleware.com
+   Center for Open Middleware (COM): http://www.centeropenmiddleware.com
 
-   Universidad Politecnica de Madrid (UPM):
-      http://www.upm.es
+   Universidad Politécnica de Madrid (UPM): http://www.upm.es
