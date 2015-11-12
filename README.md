@@ -8,23 +8,19 @@ The wiki include the documentation of the project. The table of contents is the 
 
 1. [Home](https://github.com/centeropenmiddleware/solowan/wiki)
 
-1. [User Manual](https://github.com/centeropenmiddleware/solowan/wiki/OpenNOP-SoloWAN-User-Manual)
-
-1. [Home](Home)
-
-1. [Download](Download)
+1. [Download](https://github.com/centeropenmiddleware/solowan/wiki/Download)
 
 1. Installation
 
-    2. [Source Code](Installation SourceCode)
-    2. [Docker](Installation Docker)
+    2. [Source Code](https://github.com/centeropenmiddleware/solowan/wiki/Installation%20SourceCode)
+    2. [Docker](https://github.com/centeropenmiddleware/solowan/wiki/Installation%20SourceCode)
 
-1. [OpenNOP Daemon](OpenNOP Daemon)
+1. [OpenNOP Daemon](https://github.com/centeropenmiddleware/solowan/wiki/OpenNOP%20Daemon)
 
-1. [OpenNOP Client](OpenNOP Client)
+1. [OpenNOP Client](https://github.com/centeropenmiddleware/solowan/wiki/OpenNOP%20Client)
 
-1. [Traffic forwarding](Traffic forwarding)
+1. [Traffic forwarding](https://github.com/centeropenmiddleware/solowan/wiki/Traffic%20forwarding)
 
-1. [License](License)
+1. [License](https://github.com/centeropenmiddleware/solowan/wiki/License)
 
-1. [References](References)
+1. [References](https://github.com/centeropenmiddleware/solowan/wiki/References)
