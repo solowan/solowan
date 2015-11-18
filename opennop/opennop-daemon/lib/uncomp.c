@@ -50,6 +50,29 @@
 
 inline static void local_update_caches(pDeduplicator pd, unsigned char *packet, uint16_t pktlen, uint32_t computedPacketHash) {
 
+   if (shared_dictionary_mode) {
+
+	FPStruct fptopkt[MAX_FP_PER_PKT];
+	int i;
+	unsigned char message[LOGSZ];
+	struct timeval tiempo;
+	unsigned int fpNum;
+
+	if (pktlen < BETA) return; // Short packets are never optimized
+	fpNum = calculateRelevantFPs(fptopkt, packet, pktlen);
+
+
+	if (debugword & LOCAL_UPDATE_CACHE_MASK) {
+		gettimeofday(&tiempo,NULL);
+		sprintf(message, "[LOCAL UPDATE CACHE]: at %d.%d computedPacketHash %x len %d\n", tiempo.tv_sec, tiempo.tv_usec, computedPacketHash, pktlen);
+		logger(LOG_INFO, message);
+	}
+
+
+	putPktAndFPsDesc(packet,pktlen,computedPacketHash,fptopkt,fpNum);	
+
+   } else {
+
 	FPEntryB pktFps[MAX_FP_PER_PKT];
 	int i;
 	unsigned char message[LOGSZ];
@@ -78,6 +101,7 @@ inline static void local_update_caches(pDeduplicator pd, unsigned char *packet, 
 		}
 	}
 	pthread_mutex_unlock(&pd->cerrojo);
+   }
 }
 
 // update_caches takes an incoming uncompressed packet (packet, pktlen) and updates fingerprint pointers and packet cache
@@ -123,7 +147,244 @@ void update_caches(pDeduplicator pd, unsigned char *packet, uint16_t pktlen) {
 
 extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, unsigned char *optpkt, uint16_t optlen, UncompReturnStatus *status) {
 
+   if (shared_dictionary_mode) {
+	uint32_t hash;
+	uint32_t computedPacketHash, sentPktHash;
+	uint16_t offset;
+	uint16_t orig = 0;
+	uint16_t firstPassPktLen;
+	unsigned int curr;
+	uint16_t orig_optlen;
+	unsigned char *orig_pkt;
+        unsigned char message[LOGSZ];
+	PktChunk fptopkt[MAX_FP_PER_PKT];
+	PktFrag  pktfr[MAX_FP_PER_PKT];
+	uint16_t fpNum;
 
+	int failed;
+
+	orig_optlen = optlen;
+	orig_pkt = optpkt;
+
+	// pthread_mutex_lock(&pd->cerrojo);
+
+	optlen = orig_optlen;
+	optpkt = orig_pkt;
+	*pktlen=0;
+	pd->compStats.inputBytes += optlen;
+	pd->compStats.processedPackets++;
+
+
+	// Compressed packet format:
+	//     32 bit int (network order) original packet hash
+	//     Short int (network order) offset from end of this header to first FP descriptor
+	// Compressed data: byte sequence of uncompressed chunks (variable length) and interleaved FP descriptors
+	// FP descriptors pointed by the header, fixed format and length:
+	//     64 bit FP (network order)
+	//     32 bit packet hash (network order)
+	//     16 bit left limit (network order)
+	//     16 bit right limit (network order)
+	//     16 bit offset from end of this header to next FP descriptor (if all ones, no more descriptors)
+	// Check fingerprints in FPStore
+
+	sentPktHash = ntoh32(optpkt);
+	optpkt += sizeof(uint32_t);
+	optlen -= sizeof(uint32_t);
+	offset = ntoh16(optpkt);
+	optpkt += sizeof(uint16_t);
+	optlen -= sizeof(uint16_t);
+
+	if (offset > 0) {
+        	if (offset > MAX_PKT_SIZE()) {
+			pd->compStats.errorsPacketFormat++;
+                        *pktlen = 0;
+                        status->code = UNCOMP_BAD_PACKET_FORMAT;
+                        // pthread_mutex_unlock(&pd->cerrojo);
+                        return;
+        	}
+		// memcpy(packet+orig,optpkt,offset);
+		orig += offset;
+		*pktlen += offset;
+		optpkt += offset;
+		optlen -= offset;
+	}
+
+	failed = 0;
+	fpNum = 0;
+	while (optlen >= sizeof(uint64_t) + sizeof(uint32_t)+3*sizeof(uint16_t)) {
+		PktChunk *fpt = &fptopkt[fpNum];
+
+		fpt->fp = ntoh64(optpkt);
+
+		optpkt += sizeof(uint64_t);
+		optlen -= sizeof(uint64_t);
+
+		fpt->hash = ntoh32(optpkt);
+		optpkt += sizeof(uint32_t);
+		optlen -= sizeof(uint32_t);
+
+
+		fpt->left = ntoh16(optpkt);
+		optpkt += sizeof(uint16_t);
+		optlen -= sizeof(uint16_t);
+
+		fpt->right = ntoh16(optpkt);
+		optpkt += sizeof(uint16_t);
+		optlen -= sizeof(uint16_t);
+
+		if ((fpt->left > fpt->right) || (orig+fpt->right-fpt->left> MAX_PKT_SIZE())) {
+			pd->compStats.errorsPacketFormat++;
+			*pktlen = 0;
+			status->code = UNCOMP_BAD_PACKET_FORMAT;
+			// pthread_mutex_unlock(&pd->cerrojo);
+			return;
+		}
+
+		orig += fpt->right-fpt->left+1;
+		*pktlen += fpt->right-fpt->left+1;
+
+		fpNum++;
+
+		offset = ntoh16(optpkt);
+		optpkt += sizeof(uint16_t);
+		optlen -= sizeof(uint16_t);
+		if (offset == 0xffff) {
+			if (orig+optlen> MAX_PKT_SIZE()) {
+				pd->compStats.errorsPacketFormat++;
+				*pktlen = 0;
+				status->code = UNCOMP_BAD_PACKET_FORMAT;
+				// pthread_mutex_unlock(&pd->cerrojo);
+				return;
+			}
+			orig += optlen;
+			*pktlen += optlen;
+			optlen = 0;
+		} else {
+			if (orig+offset> MAX_PKT_SIZE()) {
+				pd->compStats.errorsPacketFormat++;				
+				*pktlen = 0;
+				status->code = UNCOMP_BAD_PACKET_FORMAT;
+				// pthread_mutex_unlock(&pd->cerrojo);
+				return;
+			}
+			orig += offset;
+			*pktlen += offset;
+			optpkt += offset;
+			optlen -= offset;
+		}
+	}
+
+	if ((*pktlen> MAX_PKT_SIZE())|| (orig > MAX_PKT_SIZE())) {
+		pd->compStats.errorsPacketFormat++;				
+		*pktlen = 0;
+		status->code = UNCOMP_BAD_PACKET_FORMAT;
+		// pthread_mutex_unlock(&pd->cerrojo);
+		return;
+	}
+
+	if ((curr=getPktsByFPsAndHash(fptopkt,fpNum,pktfr)) != fpNum) {
+		*pktlen = 0;
+		status->code = UNCOMP_FP_NOT_FOUND;
+		pd->compStats.errorsMissingFP++;				
+		PktChunk *fpt = &fptopkt[curr];
+		status->fp = fpt->fp;
+		status->hash = fpt->hash;
+		// pthread_mutex_unlock(&pd->cerrojo);
+		return;
+	}
+
+	orig = curr = 0;
+	optlen = orig_optlen;
+	optpkt = orig_pkt;
+	firstPassPktLen = *pktlen;
+	*pktlen=0;
+
+	sentPktHash = ntoh32(optpkt);
+	optpkt += sizeof(uint32_t);
+	optlen -= sizeof(uint32_t);
+	offset = ntoh16(optpkt);
+	optpkt += sizeof(uint16_t);
+	optlen -= sizeof(uint16_t);
+
+	if (offset > 0) {
+		memcpy(packet,optpkt,offset);
+		orig += offset;
+		*pktlen += offset;
+		optpkt += offset;
+		optlen -= offset;
+	}
+
+	while (optlen >= sizeof(uint64_t) + sizeof(uint32_t)+3*sizeof(uint16_t)) {
+
+		PktFrag *fpt = &pktfr[curr];
+		uint16_t left, right;
+		failed = (fpt->pktFragLen == 0);
+		if (failed) break;
+
+		optpkt += sizeof(uint64_t);
+		optlen -= sizeof(uint64_t);
+
+		optpkt += sizeof(uint32_t);
+		optlen -= sizeof(uint32_t);
+
+		left = ntoh16(optpkt);
+		optpkt += sizeof(uint16_t);
+		optlen -= sizeof(uint16_t);
+
+		right = ntoh16(optpkt);
+		optpkt += sizeof(uint16_t);
+		optlen -= sizeof(uint16_t);
+
+		memcpy(packet+orig,fpt->pktFrag,right-left+1);
+
+		orig += right-left+1;
+		*pktlen += right-left+1;
+
+		curr++;
+
+		offset = ntoh16(optpkt);
+		optpkt += sizeof(uint16_t);
+		optlen -= sizeof(uint16_t);
+		if (offset == 0xffff) {
+			memcpy(packet+orig,optpkt,optlen);
+			orig += optlen;
+			*pktlen += optlen;
+			optlen = 0;
+		} else {
+			memcpy(packet+orig,optpkt,offset);
+			orig += offset;
+			*pktlen += offset;
+			optpkt += offset;
+			optlen -= offset;
+		}
+	}
+
+	if (failed) {
+		*pktlen = 0;
+		status->code = UNCOMP_FP_NOT_FOUND;
+		pd->compStats.errorsMissingFP++;				
+		PktChunk *fpt = &fptopkt[curr];
+		status->fp = fpt->fp;
+		status->hash = fpt->hash;
+		// pthread_mutex_unlock(&pd->cerrojo);
+		return;
+	}
+
+	if (*pktlen > orig_optlen) pd->compStats.uncompressedPackets++;
+	// pthread_mutex_unlock(&pd->cerrojo);
+        MurmurHash3_x86_32  (packet, *pktlen, SEED, (void *) &computedPacketHash);
+	if (computedPacketHash == sentPktHash) {
+		pd->compStats.outputBytes += *pktlen;
+		local_update_caches(pd,packet,*pktlen, computedPacketHash); 
+		status->code = UNCOMP_OK;
+	} else {
+		// abort();
+		pd->compStats.errorsPacketHash++;				
+		*pktlen = 0;
+		status->code = UNCOMP_BAD_PACKET_HASH;
+	}
+
+   } else {
 	uint64_t tentativeFP;
 	uint32_t hash;
 	uint32_t tentativePktHash, computedPacketHash, sentPktHash;
@@ -290,6 +551,6 @@ extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, un
 		*pktlen = 0;
 		status->code = UNCOMP_BAD_PACKET_HASH;
 	}
-
+   }
 }
 

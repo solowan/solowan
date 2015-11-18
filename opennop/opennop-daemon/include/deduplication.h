@@ -52,9 +52,9 @@
 #define CHUNK 400
 #define BUFFER_SIZE 1600
 
-#define ERROR 0
 #define OK 1
-#define HASH_NOT_FOUND 2
+#define ERROR -1
+#define HASH_NOT_FOUND -2
 
 typedef struct hashptr{
     uint16_t position;
@@ -77,11 +77,14 @@ int cli_deduplication_enable(int client_fd, char **parameters, int numparameters
 int cli_deduplication_disable(int client_fd, char **parameters, int numparameters);
 
 unsigned int tcp_optimize(pDeduplicator pd, __u8 *ippacket, __u8 *buffered_packet);
-unsigned int tcp_deoptimize(pDeduplicator pd, __u8 *ippacket, __u8 *buffered_packet);
+int tcp_deoptimize(pDeduplicator pd, __u8 *ippacket, __u8 *buffered_packet);
 unsigned int tcp_cache_deoptim(pDeduplicator pd, __u8 *ippacket);
 unsigned int tcp_cache_optim(pDeduplicator pd, __u8 *ippacket);
 int deduplication_enable();
 int deduplication_disable();
+int shareddict_enable();
+int shareddict_disable();
 extern int deduplication;
+extern int shareddict;
 
 #endif /* DEDUPLICATION_H_ */

@@ -286,7 +286,7 @@ int main(int argc, char *argv[]) {
 	}
 
 #ifdef ROLLING
-	init_common(packet_number,packet_size, fpPerPkt, fpsFactor);
+	init_common(packet_number,packet_size, fpPerPkt, fpsFactor, shareddict);
 	init_debugd() ;
 #endif
 

@@ -100,27 +100,34 @@ int configure(char *path, __u32 *localID, __u32 *packet_number, __u32 *packet_si
 						}
 						deduplication_enable();
 						compression_disable();
+					}else if(strcmp(token, "combined") == 0){
+						if(DEBUG_CONFIGURATION == true){
+							sprintf(message, "deduplication and compression enabled \n");
+							logger(LOG_INFO, message);
+						}
+						deduplication_enable();
+						compression_enable();
 					}else {
 						compression_disable();
 						deduplication_disable();
 					}
 				}
-/*				else if (strcmp(token, "deduplication") == 0){ // Set dedulpication
+				else if (strcmp(token, "dictionary") == 0){ // Set dedulpication
 					token = strtok( NULL, "\t =\n\r" ) ;
-					if(strcmp(token, "enable") == 0){
+					if(strcmp(token, "shared") == 0){
 						if(DEBUG_CONFIGURATION == true){
-							sprintf(message, "enabled \n");
+							sprintf(message, "shared dictionary enabled \n");
 							logger(LOG_INFO, message);
 						}
-						deduplication_enable();
-					}else if(strcmp(token, "disable") == 0){
+						shareddict_enable();
+					}else if(strcmp(token, "thread") == 0){
 						if(DEBUG_CONFIGURATION == true){
-							sprintf(message, "disabled \n");
+							sprintf(message, "shared dictionary disabled \n");
 							logger(LOG_INFO, message);
 						}
-						deduplication_disable();
+						shareddict_disable();
 					}
-				} ****/
+				}
 				else if (strcmp(token, "localid") == 0){
 					token = strtok( NULL, "\t =\n\r");
 					i = inet_pton(AF_INET, token, &tempIP);

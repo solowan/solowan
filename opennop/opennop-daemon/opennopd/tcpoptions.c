@@ -292,3 +292,16 @@ int __set_tcp_option(__u8 *ippacket, unsigned int tcpoptnum,
 	}
 
 }
+
+unsigned int getIPPlusTCPHeaderLength(__u8 *ippacket) {
+
+	struct tcphdr *tcph;
+	struct iphdr *iph;
+	unsigned int result;
+
+        iph = (struct iphdr *)ippacket;
+	result = iph->ihl * 4;
+        tcph = (struct tcphdr *) (((u_int32_t *)ippacket) + iph->ihl);
+	result += tcph->doff * 4;
+	return result;
+}

@@ -45,7 +45,8 @@
 #include "logger.h"
 #include "climanager.h"
 
-int compression = false; // Determines if opennop should compress tcp data.
+// int compression = false; // Determines if opennop should compress tcp data.
+int compression = true; // Determines if opennop should compress tcp data.
 int DEBUG_COMPRESSION = false;
 
 int cli_show_compression(int client_fd, char **parameters, int numparameters) {
@@ -119,8 +120,9 @@ unsigned int tcp_compress(__u8 *ippacket, __u8 *lzbuffer,
 		logger(LOG_INFO, message);
 	}
 
-	// If the skb or state_compress is NULL abort compression.
-	if ((ippacket != NULL) && (NULL != state_compress) && (compression == true)) {
+	// If the skb or state_compress is NULL abort compession.
+	// if ((ippacket != NULL) && (NULL != state_compress) && (compression == true)) {
+	if ((ippacket != NULL) && (NULL != state_compress)) {
 		iph = (struct iphdr *) ippacket; // Access ip header.
 		memset(state_compress, 0, sizeof(qlz_state_compress));
 
@@ -167,8 +169,10 @@ unsigned int tcp_compress(__u8 *ippacket, __u8 *lzbuffer,
 					memmove(tcpdata, lzbuffer, newsize); // Move compressed data to packet.
 					//pskb_trim(skb,skb->len - (oldsize - newsize)); // Remove extra space from skb.
 					iph->tot_len = htons(ntohs(iph->tot_len) - (oldsize - newsize));// Fix packet length.
-					__set_tcp_option((__u8 *) iph, 31, 3, 1); // Set compression flag.
+					__set_tcp_option((__u8 *) iph, 33, 3, 1); // Set compression flag.
+/*
 					tcph->seq = htonl(ntohl(tcph->seq) + 8000); // Increase SEQ number.
+*/
 
 					if (DEBUG_COMPRESSION == true) {
 						sprintf(message,
@@ -185,13 +189,15 @@ unsigned int tcp_compress(__u8 *ippacket, __u8 *lzbuffer,
 			}
 		}
 	}
-	return 1;
+	// return 1;
+	// fruiz return amount of removed redundancy
+	if (newsize<oldsize) return oldsize-newsize; else return 0;
 }
 
 /*
  * Decompress the TCP data of an SKB.
  */
-unsigned int tcp_decompress(__u8 *ippacket, __u8 *lzbuffer,
+int tcp_decompress(__u8 *ippacket, __u8 *lzbuffer,
 		qlz_state_decompress *state_decompress) {
 	struct iphdr *iph = NULL;
 	struct tcphdr *tcph = NULL;
@@ -221,8 +227,10 @@ unsigned int tcp_decompress(__u8 *ippacket, __u8 *lzbuffer,
 						state_decompress);
 				memmove(tcpdata, lzbuffer, newsize); // Move decompressed data to packet.
 				iph->tot_len = htons(ntohs(iph->tot_len) + (newsize - oldsize));// Fix packet length.
-				__set_tcp_option((__u8 *) iph, 31, 3, 0); // Set compression flag to 0.
+				__set_tcp_option((__u8 *) iph, 33, 3, 0); // Set compression flag to 0.
+/*
 				tcph->seq = htonl(ntohl(tcph->seq) - 8000); // Decrease SEQ number.
+*/
 
 				if (DEBUG_COMPRESSION == true) {
 					sprintf(
@@ -231,9 +239,11 @@ unsigned int tcp_decompress(__u8 *ippacket, __u8 *lzbuffer,
 							oldsize, newsize);
 					logger(LOG_INFO, message);
 				}
-				return 1;
+				// return 1;
+				// fruiz return amount of data expansion
+				return newsize-oldsize;
 			}
 		}
 	}
-	return 0;
+	return -1;
 }

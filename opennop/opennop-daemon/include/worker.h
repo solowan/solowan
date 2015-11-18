@@ -70,26 +70,35 @@
 
 #define MAXWORKERS 255 // Maximum number of workers to process packets.
 struct workercounters {
+	// fruiz changed counters to __u64, cannot roll
 	/*
 	 * number of packets processed.
 	 * used for pps calculation. can roll.
 	 * should increment at end of main loop after each packet is finished processing.
 	 */
-	__u32 packets;
-	__u32 packetsprevious;
-	__u32 pps; // Where the calculated pps are stored.
+	__u64 packets;
+	__u64 packetsprevious;
+	__u64 pps; // Where the calculated pps are stored.
 
 	/*
 	 * number of bytes entering process.
 	 * used for bps calculation. can roll.
 	 * should increment as beginning of main loop after packet is received from queue.
 	 */
-	__u32 bytesin;
-	__u32 bytesinprevious;
-	__u32 bpsin; // Where the calculated bps are stored.
-	__u32 bytesout;
-	__u32 bytesoutprevious;
-	__u32 bpsout; // Where the calculated bps are stored.
+	__u64 bytesin;
+	__u64 bytesinprevious;
+	__u64 bpsin; // Where the calculated bps are stored.
+	__u64 bytesout;
+	__u64 bytesoutprevious;
+	__u64 bpsout; // Where the calculated bps are stored.
+
+	// fruiz new counters for storing information on different methods of redundancy elimination
+	__u64 diffBytesCompression;
+	__u64 diffBytesDeduplication;
+	__u64 diffBytesIpTcpHeader;
+	__u64 packetsWithOnlyCompression;
+	__u64 packetsWithOnlyDeduplication;
+	__u64 packetsWithBothCompressionAndDeduplication;
 
 	/*
 	 * Stores when the counters were last updated.
@@ -112,6 +121,7 @@ struct processor {
 	pthread_t t_processor;
 	struct workercounters metrics;
 	struct packet_head queue;
+	pDeduplicator dedupProcessor; // Pointer to dictionary processor
 	__u8 *lzbuffer; // Buffer used for QuickLZ.
 	__u8 *dedup_buffer; // Buffer used for deduplication
 };
@@ -119,8 +129,6 @@ struct processor {
 /* Structure contains the worker threads, queue, and status. */
 struct worker {
 	int workernum;
-	pDeduplicator compressor; // Pointer to compressor dictionary
-	pDeduplicator decompressor; // Pointer to decompressor dictionary
 	struct processor optimization; //Thread that will do all optimizations(input).  Coming from LAN.
 	struct processor deoptimization; //Thread that will undo optimizations(output).  Coming from WAN.
 	u_int32_t sessions; // Number of sessions assigned to the worker.
