@@ -36,6 +36,6 @@
 #define	_CLI_SOCKET_H_
 
 #define	OPENNOP_SOCK	"/tmp/opennop.sock"
-#define MAX_BUFFER_SIZE	1024
+#define MAX_BUFFER_SIZE	4096
 
 #endif

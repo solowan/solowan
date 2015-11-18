@@ -1,0 +1,92 @@
+# bash completion for opennop 
+# 
+# This file is released under GPL-2, or later.
+#
+# Put this file into /usr/share/bash-completion/completions/ 
+# or into /etc/bash_completion.d/ depending on your system configuration
+#
+
+_opennop() 
+{
+    local cur prev line opts
+
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    prevprev="${COMP_WORDS[COMP_CWORD-2]} $prev"
+    prevprevprev="${COMP_WORDS[COMP_CWORD-3]} $prevprev"
+    line=${COMP_LINE}
+    opts="compression deduplication help quit reset show traces neighbor"
+
+    #echo 
+    #echo cur=${cur}
+    #echo prev=${prev}
+    #echo line=${line}
+
+        case "$prevprevprev" in
+	'show traces mask')   pars=''
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+        		 return 0
+                         ;;
+        esac
+        case "$prevprev" in
+	'traces disable')   pars='dedup put_in_cache uncomp update_cache_rtx local_update_cache recover_dedup update_cache'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+        		 return 0
+                         ;;
+	'traces enable')   pars='mask dedup put_in_cache uncomp update_cache_rtx local_update_cache recover_dedup update_cache'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+        		 return 0
+                         ;;
+	'show traces')   pars='mask'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+        		 return 0
+                         ;;
+	'show deduplication')   pars=''
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+        		 return 0
+                         ;;
+	'show compression')   pars=''
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+        		 return 0
+                         ;;
+
+	esac
+
+        case "$prev" in
+        compression)     pars='disable enable'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+        		 return 0
+                         ;;
+        deduplication)   pars='disable enable'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+                         return 0
+                         ;;
+        reset)           pars='stats'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+                         return 0
+                         ;;
+        show)            pars='compression fetcher stats version deduplication sessions traces workers neighbor'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+                         return 0
+                         ;;
+        traces)          pars='enable disable mask'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+                         return 0
+                         ;;
+        mask)          pars='and nand orr'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+                         return 0
+                         ;;
+        stats)          pars='in_dedup out_dedup in_dedup_thread out_dedup_thread'
+                         COMPREPLY=( $(compgen -W "${pars}" -- ${cur}) )
+                         return 0
+                         ;;
+        esac
+    if [[ ${cur} == * && ${COMP_CWORD} -eq 1 ]] ; then
+        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        return 0
+    fi
+}
+
+complete -F _opennop opennop

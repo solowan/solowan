@@ -145,20 +145,18 @@ void *debugd_conn_process(void *arg) {
 				write(fd,statsbuf,strlen(statsbuf));
 				sprintf(statsbuf,"short_packets.value %" PRIu64 "\n", cs.numberOfShortPkts);
 				write(fd,statsbuf,strlen(statsbuf));
-				sprintf(statsbuf,"put_in_cache_invocations.value %" PRIu64 "\n", cs.numberOfPktsProcessedInPutInCacheCall);
-				write(fd,statsbuf,strlen(statsbuf));
-				sprintf(statsbuf,"short_packets_in_put_in_cache.value %" PRIu64 "\n", cs.numberOfShortPktsInPutInCacheCall);
-				write(fd,statsbuf,strlen(statsbuf));
-				sprintf(statsbuf,"RM_obsolete_or_bad_FP.value %" PRIu64 "\n", cs.numberOfRMObsoleteOrBadFP);
-				write(fd,statsbuf,strlen(statsbuf));
-				sprintf(statsbuf,"RM_linear_lookups.value %" PRIu64 "\n", cs.numberOfRMLinearSearches);
-				write(fd,statsbuf,strlen(statsbuf));
-				sprintf(statsbuf,"RM_requests_not_found.value %" PRIu64 "\n", cs.numberOfRMCannotFind);
-				write(fd,statsbuf,strlen(statsbuf));
 				sprintf(statsbuf,"------------------------------------------------------------------\n");
 				write(fd,statsbuf,strlen(statsbuf));
 			}
-
+			if (shared_dictionary_mode) {
+				getCompDictStatistics(&cs);
+				sprintf(statsbuf,"lastPktId.value %" PRIu64 "\n", cs.lastPktId);
+				write(fd,statsbuf,strlen(statsbuf));
+				sprintf(statsbuf,"FP_hash_collisions.value %" PRIu64 "\n", cs.numberOfFPHashCollisions);
+				write(fd,statsbuf,strlen(statsbuf));
+				sprintf(statsbuf,"FP_collisions.value %" PRIu64 "\n", cs.numberOfFPCollisions);
+				write(fd,statsbuf,strlen(statsbuf));
+			}
 		} else if (!memcmp(RSTD_SCMD, buf, CMD_LEN)) {
 			int si;
 			for (si=0;si<get_workers();si++) resetStatistics(get_worker_decompressor(si));
@@ -189,6 +187,15 @@ void *debugd_conn_process(void *arg) {
 				sprintf(statsbuf,"------------------------------------------------------------------\n");
 				write(fd,statsbuf,strlen(statsbuf));
 			}
+			if (shared_dictionary_mode) {
+				getDescDictStatistics(&ds);
+				sprintf(statsbuf,"lastPktId.value %" PRIu64 "\n", ds.lastPktId);
+				write(fd,statsbuf,strlen(statsbuf));
+				sprintf(statsbuf,"FP_hash_collisions.value %" PRIu64 "\n", ds.numberOfFPHashCollisions);
+				write(fd,statsbuf,strlen(statsbuf));
+				sprintf(statsbuf,"FP_collisions.value %" PRIu64 "\n", ds.numberOfFPCollisions);
+				write(fd,statsbuf,strlen(statsbuf));
+			}	
 		}	
 		memset(buf,0, MAX_CMD_LEN);
 		sprintf(buf,"Current debug mask %" PRIx64 "\n",result);

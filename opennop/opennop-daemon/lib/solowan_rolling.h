@@ -91,6 +91,34 @@
 #define SEED 0x8BADF00D
 #define BYTE_RANGE 256
 
+#define PKTSIZELIMIT 1500
+
+typedef struct {
+	uint64_t fp;
+	uint32_t hash;
+	uint16_t left;
+	uint16_t right;
+} PktChunk;
+
+typedef struct {
+	uint64_t fp;
+	uint16_t offset;
+} FPStruct;
+
+typedef struct {
+	uint16_t pktLen;
+	// unsigned char *pkt;
+	unsigned char pkt[PKTSIZELIMIT];
+	uint32_t pktHash;
+	uint16_t offset;
+} DictElement;
+
+typedef struct {
+	// unsigned char *pktFrag;
+	unsigned char pktFrag[PKTSIZELIMIT];
+	uint16_t pktFragLen;
+} PktFrag;
+
 // Each packet is given an identifier, pktId
 // According to article, a 64 bit integer is used to keep pktId
 // 2^63 bits is a very, very large number
@@ -139,6 +167,7 @@ typedef struct {
 typedef struct {
 	PktEntry *pkts;
 	int64_t pktId;
+	void *pd;
 } PktStore;
 
 typedef struct {
@@ -151,11 +180,6 @@ typedef struct {
 	uint64_t numberOfFPHashCollisions;
 	uint64_t numberOfFPCollisions;
 	uint64_t numberOfShortPkts;
-	uint64_t numberOfPktsProcessedInPutInCacheCall;
-	uint64_t numberOfShortPktsInPutInCacheCall;
-	uint64_t numberOfRMObsoleteOrBadFP;
-	uint64_t numberOfRMLinearSearches;
-	uint64_t numberOfRMCannotFind;
 	uint64_t uncompressedPackets;
 	uint64_t errorsMissingFP;
 	uint64_t errorsMissingPacket;
@@ -166,7 +190,7 @@ typedef struct {
 
 // Calculate relevant fingerprints of a given packet
 #define MAX_ITER 4
-unsigned int calculateRelevantFPs(FPEntryB *pktFps, unsigned char *packet, uint16_t pktlen);
+unsigned int calculateRelevantFPs(void *pktFps, unsigned char *packet, uint16_t pktlen);
 
 // Read and write bytes from/to network
 void hton16(unsigned char *p, uint16_t n) ;
@@ -177,41 +201,44 @@ uint32_t ntoh32(unsigned char *p) ;
 uint64_t ntoh64(unsigned char *p) ;
 
 
-inline unsigned int MAX_PKT_SIZE(void);
-inline unsigned int PKT_STORE_SIZE(void);
-inline unsigned int FP_STORE_SIZE(void);
-inline unsigned int FP_PER_PKT(void);
-inline unsigned int FPS_FACTOR(void);
+extern unsigned int MAX_PKT_SIZE(void);
+extern unsigned int PKT_STORE_SIZE(void);
+extern unsigned int FP_STORE_SIZE(void);
+extern unsigned int FP_PER_PKT(void);
+extern unsigned int FPS_FACTOR(void);
 
 
 
 // Dictionary (PacketStore and FPStore) API
 // UNSAFE FUNCTIONS, must be called inside code with locks
 
-inline FPEntryB *getFPhash(FPStore fpStore, PktStore *pktStore, uint64_t fp, uint32_t pktHash);
-inline FPEntryB *getFPcontent(FPStore fpStore, PktStore *pktStore, uint64_t fp, unsigned char *chunk);
-inline PktEntry *getPkt(PktStore *pktStore, int64_t pktId);
-inline PktEntry *getPktHash(PktStore *pktStore, uint32_t pktHash);
-inline int64_t putPkt(PktStore *pktStore, unsigned char *pkt, uint16_t pktlen, uint32_t pktHash);
-inline void putFP(FPStore fpStore, PktStore *pktStore, uint64_t fp, int64_t pktId, uint16_t offset, Statistics *st);
+extern FPEntryB *getFPhash(FPStore fpStore, PktStore *pktStore, uint64_t fp, uint32_t pktHash);
+extern FPEntryB *getFPcontent(FPStore fpStore, PktStore *pktStore, uint64_t fp, unsigned char *chunk);
+extern PktEntry *getPkt(PktStore *pktStore, int64_t pktId);
+extern PktEntry *getPktHash(PktStore *pktStore, uint32_t pktHash);
+extern int64_t putPkt(PktStore *pktStore, unsigned char *pkt, uint16_t pktlen, uint32_t pktHash);
+extern void putFP(FPStore fpStore, PktStore *pktStore, uint64_t fp, int64_t pktId, uint16_t offset, Statistics *st);
 
 // Common API functions 
 
 // Statistics handling
 // Deduplicator object definition
 // It can hold state for both compresion and decompression
-typedef struct {
+typedef struct SD {
   pthread_mutex_t cerrojo;
   Statistics compStats;
   FPStore fps;
   PktStore ps;
+  int64_t pktId;
 } Deduplicator, *pDeduplicator;
 
 void getStatistics(pDeduplicator pd, Statistics *cs);
+void getCompDictStatistics(Statistics *cs);
+void getDescDictStatistics(Statistics *cs);
 void resetStatistics(pDeduplicator pd);
 
 // Common initialization function
-extern void init_common(unsigned int pktStoreSize, unsigned int pktSize, unsigned int maxFpPerPkt, unsigned int fpsFactor);
+extern void init_common(unsigned int pktStoreSize, unsigned int pktSize, unsigned int maxFpPerPkt, unsigned int fpsFactor, unsigned int shareddict);
 
 // Deduplicator object creation
 extern pDeduplicator newDeduplicator(void);
@@ -265,5 +292,14 @@ extern void update_caches(pDeduplicator pd, unsigned char *packet, uint16_t pktl
 // This function also calls update_caches when the packet is successfully uncompressed, no need to call update_caches externally
 extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, unsigned char *optpkt, uint16_t optlen, UncompReturnStatus *status);
 
+// Dictionary API // To be called within locks??
+
+extern void getPktsByFPsAndContent(unsigned char *pkt, uint16_t pktLen, uint32_t pktHash, FPStruct *fpa, uint16_t fpNum, DictElement *returnParam);
+extern int getPktsByFPsAndHash(PktChunk *fpa, uint16_t fpNum, PktFrag *pf);
+extern void putPktAndFPsComp(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPStruct *fpa, uint16_t fpNum);
+extern void putPktAndFPsDesc(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPStruct *fpa, uint16_t fpNum);
+
+
+extern unsigned int shared_dictionary_mode;
 #endif
 

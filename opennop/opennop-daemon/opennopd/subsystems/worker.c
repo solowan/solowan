@@ -52,6 +52,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <inttypes.h>
 #include <pthread.h> // for multi-threading
 #include <netinet/ip.h> // for tcpmagic and TCP options
 #include <netinet/tcp.h> // for tcpmagic and TCP options
@@ -126,6 +128,7 @@ void *optimization_thread(void *dummyPtr) {
 				if (thispacket != NULL) { // If a packet was taken from the queue.
 					iph = (struct iphdr *) thispacket->data;
 					tcph = (struct tcphdr *) (((u_int32_t *) iph) + iph->ihl);
+					unsigned int headersBefore = getIPPlusTCPHeaderLength((__u8 *) iph);
 
 					if (DEBUG_WORKER == true) {
 						sprintf(message, "Worker: IP Packet length is: %u\n",
@@ -176,6 +179,7 @@ void *optimization_thread(void *dummyPtr) {
 										(thissession->state == TCP_ESTABLISHED))
 								{
 
+
 									/*
 									 * Do some acceleration!
 									 */
@@ -186,16 +190,31 @@ void *optimization_thread(void *dummyPtr) {
 										logger(LOG_INFO, message);
 									}
 
-									if(compression == true){
-										tcp_compress((__u8 *)iph, me->optimization.lzbuffer,state_compress);
+									if((compression == true) && (deduplication == false)){
+										unsigned int redEl = tcp_compress((__u8 *)iph, me->optimization.lzbuffer,state_compress);
+										if (redEl > 0) {
+											me->optimization.metrics.diffBytesCompression += redEl;
+											me->optimization.metrics.packetsWithOnlyCompression++;
+										}
 									}
 
 									if(deduplication == true){
 										// Check Sequence Number to detect retransmission (or out of order segment)
 										if(checkseqnumber(largerIP, iph, tcph, thissession)){
+											unsigned int redElComp, redElDedup;
 											updateseqnumber(largerIP, iph, tcph, thissession);
-											// printf("Before tcp_optimize worker %d\n",me->workernum);
-											tcp_optimize(me->compressor,(__u8 *)iph, me->optimization.dedup_buffer);
+											redElDedup = tcp_optimize(me->optimization.dedupProcessor,(__u8 *)iph, me->optimization.dedup_buffer);
+											if (redElDedup > 0) me->optimization.metrics.diffBytesDeduplication += redElDedup;
+											// BEGIN Combine algorithms 
+											if (compression == true) {
+												redElComp = tcp_compress((__u8 *)iph, me->optimization.lzbuffer,state_compress);
+												if (redElComp > 0) {
+													me->optimization.metrics.diffBytesCompression += redElComp;
+													if (redElDedup > 0) me->optimization.metrics.packetsWithBothCompressionAndDeduplication++;
+													else me->optimization.metrics.packetsWithOnlyCompression++;
+												} else if (redElDedup > 0) me->optimization.metrics.packetsWithOnlyDeduplication++;
+											} else if (redElDedup > 0) me->optimization.metrics.packetsWithOnlyDeduplication++;
+											// END Combine algorithms 
 										}else{
 											if (DEBUG_OPTIMIZATION == true)
 											{
@@ -203,7 +222,7 @@ void *optimization_thread(void *dummyPtr) {
 												logger(LOG_INFO, message);
 											}
 											// printf("Before tcp_cache_optim worker %d\n",me->workernum);
-											tcp_cache_optim(me->compressor,(__u8 *)iph);
+											tcp_cache_optim(me->optimization.dedupProcessor,(__u8 *)iph);
 										}
 									}
 								}
@@ -217,7 +236,7 @@ void *optimization_thread(void *dummyPtr) {
 									if(deduplication == true){
 										updateseqnumber(largerIP, iph, tcph, thissession);
 										// printf("Before tcp_cache_optim worker %d\n",me->workernum);
-										tcp_cache_optim(me->compressor,(__u8 *)iph); // We cache it anyway
+										tcp_cache_optim(me->optimization.dedupProcessor,(__u8 *)iph); // We cache it anyway
 									}
 								}
 							}
@@ -246,6 +265,7 @@ void *optimization_thread(void *dummyPtr) {
 
 							checksum(thispacket->data);
 							me->optimization.metrics.bytesout += ntohs(iph->tot_len);
+							me->optimization.metrics.diffBytesIpTcpHeader += getIPPlusTCPHeaderLength((__u8 *) iph) - headersBefore;
 							nfq_set_verdict(thispacket->hq, thispacket->id, NF_ACCEPT, ntohs(iph->tot_len), (unsigned char *)thispacket->data);
 							put_freepacket_buffer(thispacket);
 							thispacket = NULL;
@@ -255,6 +275,7 @@ void *optimization_thread(void *dummyPtr) {
 					else
 					{ /* Session was NULL. */
 						me->optimization.metrics.bytesout += ntohs(iph->tot_len);
+						me->optimization.metrics.diffBytesIpTcpHeader += getIPPlusTCPHeaderLength((__u8 *) iph) - headersBefore;
 						nfq_set_verdict(thispacket->hq, thispacket->id, NF_ACCEPT, 0, NULL);
 						put_freepacket_buffer(thispacket);
 						thispacket = NULL;
@@ -323,6 +344,7 @@ void *deoptimization_thread(void *dummyPtr) {
 			if (thispacket != NULL) { // If a packet was taken from the queue.
 				iph = (struct iphdr *) thispacket->data;
 				tcph = (struct tcphdr *) (((u_int32_t *) iph) + iph->ihl);
+				unsigned int headersBefore = getIPPlusTCPHeaderLength((__u8 *) iph);
 
 				if (DEBUG_WORKER == true) {
 					sprintf(message, "Worker: IP Packet length is: %u\n",
@@ -356,10 +378,13 @@ void *deoptimization_thread(void *dummyPtr) {
 
 						if (remoteID != 0){
 
-							saveacceleratorid(largerIP, remoteID, iph, thissession);
 
-							if (__get_tcp_option((__u8 *)iph,31) != 0)
-							{ // Packet is flagged as compressed.
+							saveacceleratorid(largerIP, remoteID, iph, thissession);
+							unsigned int opt31present = (__get_tcp_option((__u8 *)iph,31) != 0);
+							unsigned int opt33present = (__get_tcp_option((__u8 *)iph,33) != 0);
+
+							if (opt31present || opt33present) 
+							{ // Packet is flagged as compressed and/or deduplicated.
 
 								if (DEBUG_WORKER == true)
 								{
@@ -376,28 +401,56 @@ void *deoptimization_thread(void *dummyPtr) {
 									/*
 									 * Decompress this packet!
 									 */
-									if(compression == true){
-										if (tcp_decompress((__u8 *)iph, me->deoptimization.lzbuffer, state_decompress) == 0)
-										{ // Decompression failed if 0.
+									if((compression == true) && (deduplication == false) && opt33present){
+										int redComp = tcp_decompress((__u8 *)iph, me->deoptimization.lzbuffer, state_decompress);
+										if (redComp < 0) { // Decompression failed if < 0.
 											nfq_set_verdict(thispacket->hq, thispacket->id, NF_DROP, 0, NULL); // Decompression failed drop.
 											put_freepacket_buffer(thispacket);
 											thispacket = NULL;
+										} else {
+											me->deoptimization.metrics.diffBytesCompression += redComp;
+											me->deoptimization.metrics.packetsWithOnlyCompression++;
 										}
 									}
 
 									if (deduplication == true){
-										updateseqnumber(largerIP, iph, tcph, thissession);
-										// printf("Before tcp_deoptimize worker %d\n",me->workernum);
-										result = tcp_deoptimize(me->decompressor,(__u8 *)iph, me->deoptimization.dedup_buffer);
-										if (result == ERROR)
-										{ // Decompression failed if 0.
-											nfq_set_verdict(thispacket->hq, thispacket->id, NF_DROP, 0, NULL); // Decompression failed drop.
-											put_freepacket_buffer(thispacket);
-											thispacket = NULL;
-										}else if(result == HASH_NOT_FOUND){
-											nfq_set_verdict(thispacket->hq, thispacket->id, NF_DROP, 0, NULL); // Decompression failed drop.
-											put_freepacket_buffer(thispacket);
-											thispacket = NULL;
+										int redComp = 0;
+										int redDedup = 0;
+										if ((compression == true) && opt33present) {
+											redComp = tcp_decompress((__u8 *)iph, me->deoptimization.lzbuffer, state_decompress);
+											if (redComp < 0) { // Decompression failed if < 0.
+											     nfq_set_verdict(thispacket->hq, thispacket->id, NF_DROP, 0, NULL); // Decompression failed drop.
+											     put_freepacket_buffer(thispacket);
+											     thispacket = NULL;
+										        } else {
+												me->deoptimization.metrics.diffBytesCompression += redComp;
+												if (!opt31present) 
+													me->deoptimization.metrics.packetsWithOnlyCompression++;
+											}
+										}
+										if (opt31present) {
+											updateseqnumber(largerIP, iph, tcph, thissession);
+											// printf("Before tcp_deoptimize worker %d\n",me->workernum);
+											redDedup = tcp_deoptimize(me->deoptimization.dedupProcessor,(__u8 *)iph, me->deoptimization.dedup_buffer);
+											if (redDedup == ERROR)
+											{ // Decompression failed if 0.
+												nfq_set_verdict(thispacket->hq, thispacket->id, NF_DROP,0,NULL);// Decompression failed drop.
+												put_freepacket_buffer(thispacket);
+												thispacket = NULL;
+											}else if(redDedup == HASH_NOT_FOUND){
+												nfq_set_verdict(thispacket->hq, thispacket->id, NF_DROP,0,NULL);// Decompression failed drop.
+												put_freepacket_buffer(thispacket);
+												thispacket = NULL;
+											} else {
+												me->deoptimization.metrics.diffBytesDeduplication += redDedup;
+												if (redComp > 0) me->deoptimization.metrics.packetsWithBothCompressionAndDeduplication++;
+												else me->deoptimization.metrics.packetsWithOnlyDeduplication++;
+
+											}
+										} else {
+											//We must cache packets even if they are not compressed
+											// printf("Before tcp_cache_deoptim worker %d\n",me->workernum);
+											tcp_cache_deoptim(me->deoptimization.dedupProcessor,(__u8 *)iph);
 										}
 									}
 
@@ -406,7 +459,7 @@ void *deoptimization_thread(void *dummyPtr) {
 								if (deduplication == true){
 									//We must cache packets even if they are not compressed
 									// printf("Before tcp_cache_deoptim worker %d\n",me->workernum);
-									tcp_cache_deoptim(me->decompressor,(__u8 *)iph);
+									tcp_cache_deoptim(me->deoptimization.dedupProcessor,(__u8 *)iph);
 								}
 							}
 						}
@@ -434,6 +487,7 @@ void *deoptimization_thread(void *dummyPtr) {
 						 */
 						checksum(thispacket->data);
 						me->deoptimization.metrics.bytesout += ntohs(iph->tot_len);
+						me->deoptimization.metrics.diffBytesIpTcpHeader += getIPPlusTCPHeaderLength((__u8 *) iph) - headersBefore;
 						nfq_set_verdict(thispacket->hq, thispacket->id, NF_ACCEPT, ntohs(iph->tot_len), (unsigned char *)thispacket->data);
 						put_freepacket_buffer(thispacket);
 						thispacket = NULL;
@@ -443,6 +497,7 @@ void *deoptimization_thread(void *dummyPtr) {
 				else
 				{ /* Session was NULL. */
 					me->deoptimization.metrics.bytesout += ntohs(iph->tot_len);
+					me->deoptimization.metrics.diffBytesIpTcpHeader += getIPPlusTCPHeaderLength((__u8 *) iph) - headersBefore;
 					nfq_set_verdict(thispacket->hq, thispacket->id, NF_ACCEPT, 0, NULL);
 					put_freepacket_buffer(thispacket);
 					thispacket = NULL;
@@ -497,8 +552,8 @@ void create_worker(int i) {
 	initialize_worker_processor(&workers[i].optimization);
 	initialize_worker_processor(&workers[i].deoptimization);
 	workers[i].workernum = i;
-	workers[i].compressor = newDeduplicator();
-	workers[i].decompressor = newDeduplicator();
+	workers[i].optimization.dedupProcessor = newDeduplicator();
+	workers[i].deoptimization.dedupProcessor = newDeduplicator();
 	workers[i].sessions = 0;
 	pthread_mutex_init(&workers[i].lock, NULL); // Initialize the worker lock.
 	pthread_create(&workers[i].optimization.t_processor, NULL,
@@ -568,26 +623,21 @@ int deoptimize_packet(__u8 queue, struct packet *thispacket) {
 
 int cli_show_workers(int client_fd, char **parameters, int numparameters) {
 	int i;
-	__u32 ppsbps;
-	__u32 total_optimization_pps = 0, total_optimization_bpsin = 0,
-			total_optimization_bpsout = 0;
-	__u32 total_deoptimization_pps = 0, total_deoptimization_bpsin = 0,
-			total_deoptimization_bpsout = 0;
+	__u64 ppsbps64;
+	__u32 ppsbps32;
+	__u32 total_optimization_pps = 0;
+	__u64 total_optimization_bpsin = 0, total_optimization_bpsout = 0;
+	__u32 total_deoptimization_pps = 0;
+	__u64 total_deoptimization_bpsin = 0, total_deoptimization_bpsout = 0;
+        __u64 total_bytesin, total_bytesout, total_diffbytescomp, total_diffbytesdedup, total_packets, total_packetscomp, total_packetsdedup, total_packetsboth, total_diffbytesheader;
 	char msg[MAX_BUFFER_SIZE] = { 0 };
 	char message[LOGSZ];
-	char bps[11];
-	char optimizationbpsin[9];
-	char optimizationbpsout[9];
-	char deoptimizationbpsin[9];
-	char deoptimizationbpsout[9];
-	char col1[11];
-	char col2[9];
-	char col3[14];
-	char col4[14];
-	char col5[9];
-	char col6[14];
-	char col7[14];
-	char col8[3];
+	char bps[255];
+        char colagr[255];
+        char optimizationbpsin[255];
+        char optimizationbpsout[255];
+        char deoptimizationbpsin[255];
+        char deoptimizationbpsout[255];
 
 	if (DEBUG_WORKER_CLI == true) {
 		sprintf(message, "Counters: Showing counters");
@@ -596,7 +646,7 @@ int cli_show_workers(int client_fd, char **parameters, int numparameters) {
 
 	sprintf(
 			msg,
-			"-------------------------------------------------------------------------------\n");
+			"---------------------------------------------------------------------------------------\n");
 	cli_send_feedback(client_fd, msg);
 	sprintf(
 			msg,
@@ -604,7 +654,7 @@ int cli_show_workers(int client_fd, char **parameters, int numparameters) {
 	cli_send_feedback(client_fd, msg);
 	sprintf(
 			msg,
-			"-------------------------------------------------------------------------------\n");
+			"---------------------------------------------------------------------------------------\n");
 	cli_send_feedback(client_fd, msg);
 	sprintf(
 			msg,
@@ -612,71 +662,257 @@ int cli_show_workers(int client_fd, char **parameters, int numparameters) {
 	cli_send_feedback(client_fd, msg);
 	sprintf(
 			msg,
-			"-------------------------------------------------------------------------------\n");
+			"---------------------------------------------------------------------------------------\n");
 	cli_send_feedback(client_fd, msg);
 
 	for (i = 0; i < get_workers(); i++) {
 
 		strcpy(msg, "");
 
-		sprintf(col1, "|    %-5i", i);
-		strcat(msg, col1);
+		sprintf(colagr, "|    %-5i", i);
+		strcat(msg, colagr);
 
-		ppsbps = workers[i].optimization.metrics.pps;
-		total_optimization_pps += ppsbps;
-		sprintf(col2, "| %-6u", ppsbps);
-		strcat(msg, col2);
+		ppsbps32 = workers[i].optimization.metrics.pps;
+		total_optimization_pps += ppsbps32;
+		sprintf(colagr, "| %-6u", ppsbps32);
+		strcat(msg, colagr);
 
-		ppsbps = workers[i].optimization.metrics.bpsin;
-		total_optimization_bpsin += ppsbps;
-		bytestostringbps(bps, ppsbps);
-		sprintf(col3, "| %-11s", bps);
-		strcat(msg, col3);
+		ppsbps64 = workers[i].optimization.metrics.bpsin;
+		total_optimization_bpsin += ppsbps64;
+		bytestostringbps(bps, ppsbps64);
+		sprintf(colagr, "| %-13s", bps);
+		strcat(msg, colagr);
 
-		ppsbps = workers[i].optimization.metrics.bpsout;
-		total_optimization_bpsout += ppsbps;
-		bytestostringbps(bps, ppsbps);
-		sprintf(col4, "| %-11s", bps);
-		strcat(msg, col4);
+		ppsbps64 = workers[i].optimization.metrics.bpsout;
+		total_optimization_bpsout += ppsbps64;
+		bytestostringbps(bps, ppsbps64);
+		sprintf(colagr, "| %-13s", bps);
+		strcat(msg, colagr);
 
-		ppsbps = workers[i].deoptimization.metrics.pps;
-		total_deoptimization_pps += ppsbps;
-		sprintf(col5, "| %-6u", ppsbps);
-		strcat(msg, col5);
+		ppsbps32 = workers[i].deoptimization.metrics.pps;
+		total_deoptimization_pps += ppsbps32;
+		sprintf(colagr, "| %-6u", ppsbps32);
+		strcat(msg, colagr);
 
-		ppsbps = workers[i].deoptimization.metrics.bpsin;
-		total_deoptimization_bpsin += ppsbps;
-		bytestostringbps(bps, ppsbps);
-		sprintf(col6, "| %-11s", bps);
-		strcat(msg, col6);
+		ppsbps64 = workers[i].deoptimization.metrics.bpsin;
+		total_deoptimization_bpsin += ppsbps64;
+		bytestostringbps(bps, ppsbps64);
+		sprintf(colagr, "| %-13s", bps);
+		strcat(msg, colagr);
 
-		ppsbps = workers[i].deoptimization.metrics.bpsout;
-		total_deoptimization_bpsout += ppsbps;
-		bytestostringbps(bps, ppsbps);
-		sprintf(col7, "| %-11s", bps);
-		strcat(msg, col7);
+		ppsbps64 = workers[i].deoptimization.metrics.bpsout;
+		total_deoptimization_bpsout += ppsbps64;
+		bytestostringbps(bps, ppsbps64);
+		sprintf(colagr, "| %-13s", bps);
+		strcat(msg, colagr);
 
-		sprintf(col8, "|\n");
-		strcat(msg, col8);
+		sprintf(colagr, "|\n");
+		strcat(msg, colagr);
 		cli_send_feedback(client_fd, msg);
 	}
 	sprintf(
 			msg,
-			"-------------------------------------------------------------------------------\n");
+			"---------------------------------------------------------------------------------------\n");
 	cli_send_feedback(client_fd, msg);
 
 	bytestostringbps(optimizationbpsin, total_optimization_bpsin);
 	bytestostringbps(optimizationbpsout, total_optimization_bpsout);
 	bytestostringbps(deoptimizationbpsin, total_deoptimization_bpsin);
 	bytestostringbps(deoptimizationbpsout, total_deoptimization_bpsout);
-	sprintf(msg, "|  total  | %-6u| %-11s| %-11s| %-6u| %-11s| %-11s|\n",
+	sprintf(msg, "|  total  | %-6u| %-13s| %-13s| %-6u| %-13s| %-13s|\n",
 			total_optimization_pps, optimizationbpsin, optimizationbpsout,
 			total_deoptimization_pps, deoptimizationbpsin, deoptimizationbpsout);
 	cli_send_feedback(client_fd, msg);
 
 	sprintf(
 			msg,
-			"-------------------------------------------------------------------------------\n");
+			"---------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+        
+        /////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"| accmltd.|                                                     optimization                                               |\n");
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"|  worker |  bytes in   |  bytes out  |   bcomp     |  bdedup    | bhead  | pkts      |   cpkts   |  dpkts    | c&dpkts   |\n");
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+
+        total_bytesin = total_bytesout = total_diffbytescomp = total_diffbytesdedup = total_diffbytesheader = total_packets = total_packetscomp = total_packetsdedup = total_packetsboth = 0;
+	for (i = 0; i < get_workers(); i++) {
+		strcpy(msg, "");
+
+		sprintf(colagr, "|    %-5i", i);
+		strcat(msg, colagr);
+
+		ppsbps64 = workers[i].optimization.metrics.bytesin;
+		total_bytesin += ppsbps64;
+		sprintf(colagr, "| %-12" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+
+                ppsbps64 = workers[i].optimization.metrics.bytesout;
+		total_bytesout += ppsbps64;
+		sprintf(colagr, "| %-12" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].optimization.metrics.diffBytesCompression;
+		total_diffbytescomp += ppsbps64;
+		sprintf(colagr, "| %-12" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+		ppsbps64 = workers[i].optimization.metrics.diffBytesDeduplication;
+		total_diffbytesdedup += ppsbps64;
+		sprintf(colagr, "| %-11" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+		ppsbps64 = workers[i].optimization.metrics.diffBytesIpTcpHeader;
+		total_diffbytesheader += ppsbps64;
+		sprintf(colagr, "| %-7" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].optimization.metrics.packets;
+		total_packets += ppsbps64;
+		sprintf(colagr, "| %-10" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].optimization.metrics.packetsWithOnlyCompression;
+		total_packetscomp += ppsbps64;
+		sprintf(colagr, "| %-10" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].optimization.metrics.packetsWithOnlyDeduplication;
+		total_packetsdedup += ppsbps64;
+		sprintf(colagr, "| %-10" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].optimization.metrics.packetsWithBothCompressionAndDeduplication;
+		total_packetsboth += ppsbps64;
+		sprintf(colagr, "| %-10" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                
+		sprintf(colagr, "|\n");
+		strcat(msg, colagr);
+
+		cli_send_feedback(client_fd, msg);
+	}
+	sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+
+        sprintf(msg, "|  total  | %-12" PRId64 "| %-12" PRId64 "| %-12" PRId64 "| %-11" PRId64 "| %-7" PRId64 "| %-10" PRId64 "| %-10" PRId64 "| %-10" PRId64 "| %-10" PRId64 "|\n", 
+		total_bytesin, total_bytesout, total_diffbytescomp, total_diffbytesdedup, total_diffbytesheader,total_packets, total_packetscomp, total_packetsdedup, total_packetsboth ); 
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+
+
+        sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"| accmltd.|                                                   deoptimization                                               |\n");
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"|  worker |  bytes in   |  bytes out  |   bcomp     |  bdedup    | bhead  | pkts      |   cpkts   |  dpkts    | c&dpkts   |\n");
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+
+        total_bytesin = total_bytesout = total_diffbytescomp = total_diffbytesdedup = total_diffbytesheader = total_packets = total_packetscomp = total_packetsdedup = total_packetsboth = 0;
+	for (i = 0; i < get_workers(); i++) {
+		strcpy(msg, "");
+
+		sprintf(colagr, "|    %-5i", i);
+		strcat(msg, colagr);
+
+		ppsbps64 = workers[i].deoptimization.metrics.bytesin;
+		total_bytesin += ppsbps64;
+		sprintf(colagr, "| %-12" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+
+                ppsbps64 = workers[i].deoptimization.metrics.bytesout;
+		total_bytesout += ppsbps64;
+		sprintf(colagr, "| %-12" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].deoptimization.metrics.diffBytesCompression;
+		total_diffbytescomp += ppsbps64;
+		sprintf(colagr, "| %-12" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+		ppsbps64 = workers[i].deoptimization.metrics.diffBytesDeduplication;
+		total_diffbytesdedup += ppsbps64;
+		sprintf(colagr, "| %-11" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+		ppsbps64 = workers[i].deoptimization.metrics.diffBytesIpTcpHeader;
+		total_diffbytesheader += ppsbps64;
+		sprintf(colagr, "| %-7" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].deoptimization.metrics.packets;
+		total_packets += ppsbps64;
+		sprintf(colagr, "| %-10" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].deoptimization.metrics.packetsWithOnlyCompression;
+		total_packetscomp += ppsbps64;
+		sprintf(colagr, "| %-10" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].deoptimization.metrics.packetsWithOnlyDeduplication;
+		total_packetsdedup += ppsbps64;
+		sprintf(colagr, "| %-10" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                ppsbps64 = workers[i].deoptimization.metrics.packetsWithBothCompressionAndDeduplication;
+		total_packetsboth += ppsbps64;
+		sprintf(colagr, "| %-10" PRId64 "", ppsbps64);
+		strcat(msg, colagr);
+                
+                
+		sprintf(colagr, "|\n");
+		strcat(msg, colagr);
+
+		cli_send_feedback(client_fd, msg);
+	}
+	sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
+
+        sprintf(msg, "|  total  | %-12" PRId64 "| %-12" PRId64 "| %-12" PRId64 "| %-11" PRId64 "| %-7" PRId64 "| %-10" PRId64 "| %-10" PRId64 "| %-10" PRId64 "| %-10" PRId64 "|\n", 
+		total_bytesin, total_bytesout, total_diffbytescomp, total_diffbytesdedup, total_diffbytesheader,total_packets, total_packetscomp, total_packetsdedup, total_packetsboth ); 
+	cli_send_feedback(client_fd, msg);
+	sprintf(
+			msg,
+			"----------------------------------------------------------------------------------------------------------------------------\n");
 	cli_send_feedback(client_fd, msg);
 
 	return 0;
@@ -739,10 +975,10 @@ struct session *closingsession(struct tcphdr *tcph, struct session *thissession)
 }
 
 pDeduplicator get_worker_compressor(int i) {
-	return workers[i].compressor;
+	return workers[i].optimization.dedupProcessor;
 }
 
 pDeduplicator get_worker_decompressor(int i) {
-	return workers[i].decompressor;
+	return workers[i].deoptimization.dedupProcessor;
 }
 

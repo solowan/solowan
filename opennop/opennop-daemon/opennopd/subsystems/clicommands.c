@@ -55,6 +55,8 @@
 #include <string.h>
 #include <stddef.h>
 #include <pthread.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 #include <sys/socket.h>
 
@@ -502,14 +504,15 @@ int cli_show_param(int client_fd, char **parameters, int numparameters) {
 	return 0;
 }
 
-void bytestostringbps(char *output, __u32 count) {
-	int I = 0;
-	int D = 0;
-	int bits = 0;
+void bytestostringbps(char *output, __u64 count) {
+	int64_t I = 0;
+	int64_t D = 0;
+	int64_t bits = 0;
 	bits = count * 8; // convert bytes to bps.
 
 	if (bits < 1024) { // output as bits.
-		sprintf(output, "%i bps", bits);
+		// sprintf(output, "%i bps", bits);
+		sprintf(output, "%" PRId64 " bps", bits);
 
 		return;
 	}
@@ -517,7 +520,8 @@ void bytestostringbps(char *output, __u32 count) {
 	if (((bits / 1024) / 1024) >= 1024) { // output as Gbps.
 		I = ((bits / 1024) / 1024) / 1024;
 		D = (((bits / 1024) / 1024) % 1024) / 10;
-		sprintf(output, "%i.%i Gbps", I, D);
+		// sprintf(output, "%i.%i Gbps", I, D);
+		sprintf(output, "%" PRId64 ".%" PRId64 " Gbps", I, D);
 
 		return;
 	}
@@ -525,7 +529,8 @@ void bytestostringbps(char *output, __u32 count) {
 	if ((bits / 1024) >= 1024) { // output as Mbps.
 		I = (bits / 1024) / 1024;
 		D = ((bits / 1024) % 1024) / 10;
-		sprintf(output, "%i.%i Mbps", I, D);
+		// sprintf(output, "%i.%i Mbps", I, D);
+		sprintf(output, "%" PRId64 ".%" PRId64 " Mbps", I, D);
 
 		return;
 	}
@@ -533,7 +538,8 @@ void bytestostringbps(char *output, __u32 count) {
 	if (bits >= 1024) { // output as Kbps.
 		I = bits / 1024;
 		D = (bits % 1024) / 10;
-		sprintf(output, "%i.%i Kbps", I, D);
+		// sprintf(output, "%i.%i Kbps", I, D);
+		sprintf(output, "%" PRId64 ".%" PRId64 " Kbps", I, D);
 
 		return;
 	}

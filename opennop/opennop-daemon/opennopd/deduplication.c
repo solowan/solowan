@@ -74,6 +74,7 @@
 #endif
 
 int deduplication = true; // Determines if opennop should deduplicate tcp data.
+int shareddict = false; // Determines dictionary mode.
 int DEBUG_DEDUPLICATION = false;
 int DEBUG_DEDUPLICATION1 = false;
 
@@ -125,11 +126,6 @@ int cli_show_stats_in_dedup(int client_fd, char **parameters, int numparameters)
 		csAggregate.numberOfFPHashCollisions += cs.numberOfFPHashCollisions;		
 		csAggregate.numberOfFPCollisions += cs.numberOfFPCollisions;		
 		csAggregate.numberOfShortPkts += cs.numberOfShortPkts;		
-		csAggregate.numberOfPktsProcessedInPutInCacheCall += cs.numberOfPktsProcessedInPutInCacheCall;		
-		csAggregate.numberOfShortPktsInPutInCacheCall += cs.numberOfShortPktsInPutInCacheCall;		
-		csAggregate.numberOfRMObsoleteOrBadFP += cs.numberOfRMObsoleteOrBadFP;		
-		csAggregate.numberOfRMLinearSearches += cs.numberOfRMLinearSearches;		
-		csAggregate.numberOfRMCannotFind += cs.numberOfRMCannotFind;		
 	}
 	memset(msg, 0, MAX_BUFFER_SIZE);
 	sprintf(msg,"Compressor statistics\n");
@@ -151,16 +147,6 @@ int cli_show_stats_in_dedup(int client_fd, char **parameters, int numparameters)
 	sprintf(msg,"FP_collisions.value %" PRIu64 "\n", csAggregate.numberOfFPCollisions);
 	cli_send_feedback(client_fd, msg);
 	sprintf(msg,"short_packets.value %" PRIu64 "\n", csAggregate.numberOfShortPkts);
-	cli_send_feedback(client_fd, msg);
-	sprintf(msg,"put_in_cache_invocations.value %" PRIu64 "\n", csAggregate.numberOfPktsProcessedInPutInCacheCall);
-	cli_send_feedback(client_fd, msg);
-	sprintf(msg,"short_packets_in_put_in_cache.value %" PRIu64 "\n", csAggregate.numberOfShortPktsInPutInCacheCall);
-	cli_send_feedback(client_fd, msg);
-	sprintf(msg,"RM_obsolete_or_bad_FP.value %" PRIu64 "\n", csAggregate.numberOfRMObsoleteOrBadFP);
-	cli_send_feedback(client_fd, msg);
-	sprintf(msg,"RM_linear_lookups.value %" PRIu64 "\n", csAggregate.numberOfRMLinearSearches);
-	cli_send_feedback(client_fd, msg);
-	sprintf(msg,"RM_requests_not_found.value %" PRIu64 "\n", csAggregate.numberOfRMCannotFind);
 	cli_send_feedback(client_fd, msg);
 	sprintf	(msg,"------------------------------------------------------------------\n");
 	cli_send_feedback(client_fd, msg);
@@ -189,17 +175,6 @@ int cli_show_stats_in_dedup(int client_fd, char **parameters, int numparameters)
 	                        sprintf(msg,"FP_collisions.value %" PRIu64 "\n", cs.numberOfFPCollisions);
 	                        cli_send_feedback(client_fd, msg);
 	                        sprintf(msg,"short_packets.value %" PRIu64 "\n", cs.numberOfShortPkts);
-	                        cli_send_feedback(client_fd, msg);
-	
-	                        sprintf(msg,"put_in_cache_invocations.value %" PRIu64 "\n", cs.numberOfPktsProcessedInPutInCacheCall);
-	                        cli_send_feedback(client_fd, msg);
-	                        sprintf(msg,"short_packets_in_put_in_cache.value %" PRIu64 "\n", cs.numberOfShortPktsInPutInCacheCall);
-	                        cli_send_feedback(client_fd, msg);
-	                        sprintf(msg,"RM_obsolete_or_bad_FP.value %" PRIu64 "\n", cs.numberOfRMObsoleteOrBadFP);
-	                        cli_send_feedback(client_fd, msg);
-	                        sprintf(msg,"RM_linear_lookups.value %" PRIu64 "\n", cs.numberOfRMLinearSearches);
-	                        cli_send_feedback(client_fd, msg);
-	                        sprintf(msg,"RM_requests_not_found.value %" PRIu64 "\n", cs.numberOfRMCannotFind);
 	                        cli_send_feedback(client_fd, msg);
 	                        sprintf(msg,"------------------------------------------------------------------\n");
 	                        cli_send_feedback(client_fd, msg);
@@ -238,17 +213,6 @@ int cli_show_stats_in_dedup_thread(int client_fd, char **parameters, int numpara
 	                        sprintf(msg,"FP_collisions.value %" PRIu64 "\n", cs.numberOfFPCollisions);
 	                        cli_send_feedback(client_fd, msg);
 	                        sprintf(msg,"short_packets.value %" PRIu64 "\n", cs.numberOfShortPkts);
-	                        cli_send_feedback(client_fd, msg);
-	
-	                        sprintf(msg,"put_in_cache_invocations.value %" PRIu64 "\n", cs.numberOfPktsProcessedInPutInCacheCall);
-	                        cli_send_feedback(client_fd, msg);
-	                        sprintf(msg,"short_packets_in_put_in_cache.value %" PRIu64 "\n", cs.numberOfShortPktsInPutInCacheCall);
-	                        cli_send_feedback(client_fd, msg);
-	                        sprintf(msg,"RM_obsolete_or_bad_FP.value %" PRIu64 "\n", cs.numberOfRMObsoleteOrBadFP);
-	                        cli_send_feedback(client_fd, msg);
-	                        sprintf(msg,"RM_linear_lookups.value %" PRIu64 "\n", cs.numberOfRMLinearSearches);
-	                        cli_send_feedback(client_fd, msg);
-	                        sprintf(msg,"RM_requests_not_found.value %" PRIu64 "\n", cs.numberOfRMCannotFind);
 	                        cli_send_feedback(client_fd, msg);
 	                        sprintf(msg,"------------------------------------------------------------------\n");
 	                        cli_send_feedback(client_fd, msg);
@@ -427,6 +391,11 @@ int deduplication_enable(){
 	return 0;
 }
 
+int shareddict_enable() {
+	shareddict = true;
+	return 0;
+}
+
 int cli_deduplication_disable(int client_fd, char **parameters, int numparameters) {
 	deduplication = false;
 	char msg[MAX_BUFFER_SIZE] = { 0 };
@@ -445,6 +414,10 @@ int deduplication_disable(){
 	return 0;
 }
 
+int shareddict_disable(){
+	shareddict = false;
+	return 0;
+}
 /*
  * Optimize the TCP data of an SKB.
  */
@@ -526,13 +499,14 @@ unsigned int tcp_optimize(pDeduplicator pd, __u8 *ippacket, __u8 *buffered_packe
 			}
 		}
 	}
-	return OK;
+	// fruiz return amount of redundancy elimination
+	if (compressed) return oldsize-newsize; else return 0;
 }
 
 /*
  * Deoptimize the TCP data of an SKB.
  */
-unsigned int tcp_deoptimize(pDeduplicator pd, __u8 *ippacket, __u8 *regenerated_packet) {
+int tcp_deoptimize(pDeduplicator pd, __u8 *ippacket, __u8 *regenerated_packet) {
 
 	struct iphdr *iph = NULL;
 	struct tcphdr *tcph = NULL;
@@ -588,7 +562,9 @@ unsigned int tcp_deoptimize(pDeduplicator pd, __u8 *ippacket, __u8 *regenerated_
 							oldsize, newsize);
 					logger(LOG_INFO, message);
 				}
-				return OK;
+				// return OK;
+				// fruiz return amount of expanded data
+				if (newsize >= oldsize) return newsize-oldsize; else return ERROR;
 			}
 		}
 	}
