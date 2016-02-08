@@ -13,7 +13,7 @@ The wiki include the documentation of the project. The table of contents is the 
 1. Installation
 
     2. [Source Code](https://github.com/centeropenmiddleware/solowan/wiki/Installation%20SourceCode)
-    2. [Docker](https://github.com/centeropenmiddleware/solowan/wiki/Installation%20SourceCode)
+    2. [Docker](https://github.com/centeropenmiddleware/solowan/wiki/Installation%20Docker)
 
 1. [OpenNOP Daemon](https://github.com/centeropenmiddleware/solowan/wiki/OpenNOP%20Daemon)
 
