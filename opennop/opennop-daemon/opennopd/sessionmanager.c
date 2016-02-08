@@ -415,14 +415,14 @@ int cli_show_sessionss(int client_fd, char **parameters, int numparameters) {
 	struct session *currentsession = NULL;
 	char msg[MAX_BUFFER_SIZE] = { 0 };
 	int i;
-	char temp[20];
-	char col1[10];
-	char col2[17];
-	char col3[14];
-	char col4[17];
-	char col5[14];
-	char col6[14];
-	char end[3];
+	char temp[30];
+	char col1[30];
+	char col2[30];
+	char col3[30];
+	char col4[30];
+	char col5[30];
+	char col6[30];
+	char end[30];
 
 	sprintf(
 			msg,
