@@ -21,6 +21,8 @@ The wiki include the documentation of the project. The table of contents is the 
 
 1. [Traffic forwarding](https://github.com/centeropenmiddleware/solowan/wiki/Traffic%20forwarding)
 
+1. [SoloWAN Dashboard](https://github.com/centeropenmiddleware/solowan-dashboard) 
+
 1. [License](https://github.com/centeropenmiddleware/solowan/wiki/License)
 
 1. [References](https://github.com/centeropenmiddleware/solowan/wiki/References)
