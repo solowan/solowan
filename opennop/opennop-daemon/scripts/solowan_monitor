@@ -1,6 +1,6 @@
 #!/bin/bash
 
-watch "opennop show workers; solowan_nfqueue; echo ''; opennop show stats out_dedup | grep FP_entries"
+watch "opennop show sessions; opennop show workers; solowan_nfqueue; echo ''; opennop show stats out_dedup | grep FP_entries"
 
 
 
