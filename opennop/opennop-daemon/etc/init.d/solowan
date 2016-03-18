@@ -84,6 +84,7 @@ case "$1" in
        echo "-- Traffic redirected to SoloWAN: "
        echo "--"
        iptables -L | grep "NFQUEUE num 0" | awk '{ print $6,$7,$8,$9,$10,$11 }'
+       iptables -L -t mangle | grep "NFQUEUE num 0" | awk '{ print $6,$7,$8,$9,$10,$11 }'
        echo "--"
    else 
        echo "--"
