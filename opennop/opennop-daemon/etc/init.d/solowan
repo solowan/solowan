@@ -1,0 +1,99 @@
+#! /bin/bash
+### BEGIN INIT INFO
+# Provides: tomcat
+# Required-Start: 
+# Required-Stop: 
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: SoloWAN (OpenNOP based WAN optimizer)
+# Description: This file starts and stops Tomcat server
+# 
+### END INIT INFO
+
+OPENNOP_DIR=/usr/local/sbin
+ADDFLOWS_SCRIPT=/etc/opennop/opennop-addflows.sh
+DELFLOWS_SCRIPT=/etc/opennop/opennop-delflows.sh
+
+function solowan_start {
+
+   echo "--"
+   PID=$( ps uax | grep "$OPENNOP_DIR/opennop" | grep -v grep | awk '{ print $2 }' )
+   if [ "$PID" ]; then
+       echo "-- SoloWAN already started: PID=$PID. Call stop or restart first."
+   else
+       echo "-- Starting SoloWAN process"
+       $OPENNOP_DIR/opennopd -n >> /var/log/opennop.log &
+       PID=$( ps uax | grep opennop | grep -v grep | awk '{ print $2 }' )
+       if [ "$PID" ]; then
+           echo "-- ...process $PID started."
+           if [ -f "$ADDFLOWS_SCRIPT" ]; then
+               echo "--"
+               echo "-- Redirecting flows:"
+               "$ADDFLOWS_SCRIPT"
+           fi
+       else
+           echo "-- ...cannot start solowan process See /var/log/opennop.log for details."
+       fi
+   fi
+   echo "--"
+
+}
+
+function solowan_stop {
+
+   echo "--"
+   PID=$( ps uax | grep "$OPENNOP_DIR/opennop" | grep -v grep | awk '{ print $2 }' )
+   if [ "$PID" ]; then
+       echo "-- Stopping solowan process $PID..."
+       killall -9 $OPENNOP_DIR/opennopd
+   else
+       echo "-- SoloWAN not running, nothing to stop..."
+   fi
+   if [ -f "$DELFLOWS_SCRIPT" ]; then
+       echo "--"
+       echo "-- Deleting flow redirections:"
+       "$DELFLOWS_SCRIPT"
+   fi
+   echo "--"
+
+}
+
+case "$1" in
+ start)
+   solowan_start
+   ;;
+
+ stop)
+   solowan_stop
+   ;;
+
+ restart)
+   solowan_stop
+   sleep 2
+   solowan_start
+   ;;
+
+ status)
+   RES=$( ps uax | grep "$OPENNOP_DIR/opennop" | grep -v grep )
+   if [ "$RES" ]; then
+       echo "--"
+       echo "-- Solowan running:"
+       echo "--"
+       echo $RES
+       echo "--"
+       echo "-- Traffic redirected to SoloWAN: "
+       echo "--"
+       iptables -L | grep "NFQUEUE num 0" | awk '{ print $6,$7,$8,$9,$10,$11 }'
+       echo "--"
+   else 
+       echo "--"
+       echo "-- Solowan NOT running"
+       echo "--"
+   fi
+   ;;
+
+ *)
+   echo "Usage: solowan {start|stop|restart|status}" >&2
+   exit 3
+   ;;
+esac
