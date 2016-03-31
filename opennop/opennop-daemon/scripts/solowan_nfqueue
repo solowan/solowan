@@ -1,0 +1,22 @@
+#!/bin/bash
+
+echo "SoloWAN nfqueue status: "
+echo ""
+printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "queue"  "solowan" "packets" "queue"   "user"    "last"
+printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "number" "pid"     "inqueue" "dropped" "dropped" "pkt id"
+echo "-----------------------------------------------"
+
+RES=$( cat /proc/net/netfilter/nfnetlink_queue )
+ARR=($RES)
+
+QUEUENUM=${ARR[0]} 
+SOLOWANPID=${ARR[1]}
+PACKETSINQUEUE=${ARR[2]}
+COPYMODE=${ARR[3]}
+COPYRANGE=${ARR[4]}
+QUEUEDROPPED=${ARR[5]}
+USERDROPPED=${ARR[6]}
+LASTPKTID=${ARR[7]}
+
+printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\n" $QUEUENUM $SOLOWANPID $PACKETSINQUEUE $QUEUEDROPPED $USERDROPPED $LASTPKTID
+echo "-----------------------------------------------"

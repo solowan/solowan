@@ -143,7 +143,7 @@ struct session *insertsession(__u32 largerIP, __u16 largerIPPort,
 	/*
 	 * What queue will the packets for this session go to?
 	 */
-/* COMMENTED. This was the original code, inserting new sessions considering current workload
+
 	queuenum = 0;
 
 	for (i = 0; i < get_workers(); i++) {
@@ -161,13 +161,12 @@ struct session *insertsession(__u32 largerIP, __u16 largerIPPort,
 			}
 		}
 	}
-*/
 
 // New behaviour: a hash depending on source and destination IP addresses is computed. The allocated queue depends on this hash.
-	unsigned char hashflow;
-	hashflow = (largerIP & 0xff) ^((largerIP >> 8) & 0xff) ^ ((largerIP >> 16) & 0xff) ^((largerIP >> 24) & 0xff) ; 
-	hashflow = hashflow ^(smallerIP & 0xff) ^((smallerIP >> 8) & 0xff) ^ ((smallerIP >> 16) & 0xff) ^((smallerIP >> 24) & 0xff) ; 
-	queuenum = hashflow % get_workers();
+//	unsigned char hashflow;
+//	hashflow = (largerIP & 0xff) ^((largerIP >> 8) & 0xff) ^ ((largerIP >> 16) & 0xff) ^((largerIP >> 24) & 0xff) ; 
+//	hashflow = hashflow ^(smallerIP & 0xff) ^((smallerIP >> 8) & 0xff) ^ ((smallerIP >> 16) & 0xff) ^((smallerIP >> 24) & 0xff) ; 
+//	queuenum = hashflow % get_workers();
 // End new behaviour
 
 	if (DEBUG_SESSIONMANAGER_INSERT == true) {
@@ -416,14 +415,14 @@ int cli_show_sessionss(int client_fd, char **parameters, int numparameters) {
 	struct session *currentsession = NULL;
 	char msg[MAX_BUFFER_SIZE] = { 0 };
 	int i;
-	char temp[20];
-	char col1[10];
-	char col2[17];
-	char col3[14];
-	char col4[17];
-	char col5[14];
-	char col6[14];
-	char end[3];
+	char temp[30];
+	char col1[30];
+	char col2[30];
+	char col3[30];
+	char col4[30];
+	char col5[30];
+	char col6[30];
+	char end[30];
 
 	sprintf(
 			msg,
