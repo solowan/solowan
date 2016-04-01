@@ -193,6 +193,7 @@ void *optimization_thread(void *dummyPtr) {
 									if((compression == true) && (deduplication == false)){
 										unsigned int redEl = tcp_compress((__u8 *)iph, me->optimization.lzbuffer,state_compress);
 										if (redEl > 0) {
+											tcph->seq = htonl(ntohl(tcph->seq) + 8000); // Increase SEQ number
 											me->optimization.metrics.diffBytesCompression += redEl;
 											me->optimization.metrics.packetsWithOnlyCompression++;
 										}
@@ -214,6 +215,8 @@ void *optimization_thread(void *dummyPtr) {
 													else me->optimization.metrics.packetsWithOnlyCompression++;
 												} else if (redElDedup > 0) me->optimization.metrics.packetsWithOnlyDeduplication++;
 											} else if (redElDedup > 0) me->optimization.metrics.packetsWithOnlyDeduplication++;
+										 	if ((redElDedup > 0) || ((compression == true)&&(redElComp > 0)))
+												tcph->seq = htonl(ntohl(tcph->seq) + 8000); // Increase SEQ number
 											// END Combine algorithms 
 										}else{
 											if (DEBUG_OPTIMIZATION == true)
@@ -408,6 +411,7 @@ void *deoptimization_thread(void *dummyPtr) {
 											put_freepacket_buffer(thispacket);
 											thispacket = NULL;
 										} else {
+											tcph->seq = htonl(ntohl(tcph->seq) - 8000); // Decrease SEQ number
 											me->deoptimization.metrics.diffBytesCompression += redComp;
 											me->deoptimization.metrics.packetsWithOnlyCompression++;
 										}
@@ -424,8 +428,10 @@ void *deoptimization_thread(void *dummyPtr) {
 											     thispacket = NULL;
 										        } else {
 												me->deoptimization.metrics.diffBytesCompression += redComp;
-												if (!opt31present) 
+												if (!opt31present) {
+													tcph->seq = htonl(ntohl(tcph->seq) - 8000); // Decrease SEQ number
 													me->deoptimization.metrics.packetsWithOnlyCompression++;
+												}
 											}
 										}
 										if (opt31present) {
@@ -442,6 +448,7 @@ void *deoptimization_thread(void *dummyPtr) {
 												put_freepacket_buffer(thispacket);
 												thispacket = NULL;
 											} else {
+												tcph->seq = htonl(ntohl(tcph->seq) - 8000); // Decrease SEQ number
 												me->deoptimization.metrics.diffBytesDeduplication += redDedup;
 												if (redComp > 0) me->deoptimization.metrics.packetsWithBothCompressionAndDeduplication++;
 												else me->deoptimization.metrics.packetsWithOnlyDeduplication++;
