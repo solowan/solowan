@@ -170,7 +170,8 @@ unsigned int tcp_compress(__u8 *ippacket, __u8 *lzbuffer,
 					//pskb_trim(skb,skb->len - (oldsize - newsize)); // Remove extra space from skb.
 					iph->tot_len = htons(ntohs(iph->tot_len) - (oldsize - newsize));// Fix packet length.
 					__set_tcp_option((__u8 *) iph, 33, 3, 1); // Set compression flag.
-/*
+/* moved to worker
+
 					tcph->seq = htonl(ntohl(tcph->seq) + 8000); // Increase SEQ number.
 */
 

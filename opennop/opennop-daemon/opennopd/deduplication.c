@@ -486,10 +486,9 @@ unsigned int tcp_optimize(pDeduplicator pd, __u8 *ippacket, __u8 *buffered_packe
 					// Set the ip packet and the TCP options
 					iph->tot_len = htons(ntohs(iph->tot_len) - (oldsize - newsize));// Fix packet length.
 					__set_tcp_option((__u8 *) iph, 31, 3, 1); // Set compression flag.
-                    /* Bellido: change from increasing seq number to changing most significant bit
+                    /* Bellido: moved to worker
 					tcph->seq = htonl(ntohl(tcph->seq) + 8000); // Increase SEQ number.
                     */
-					tcph->seq = htonl(ntohl(tcph->seq) ^ 1 << 31 ); // Change most significant bit
 				}
 
 				if (DEBUG_DEDUPLICATION == true) {
@@ -551,10 +550,9 @@ int tcp_deoptimize(pDeduplicator pd, __u8 *ippacket, __u8 *regenerated_packet) {
 				memmove(tcpdata, regenerated_packet, newsize); // Move decompressed data to packet.
 				iph->tot_len = htons(ntohs(iph->tot_len) + (newsize - oldsize));// Fix packet length.
 				__set_tcp_option((__u8 *) iph, 31, 3, 0); // Set compression flag to 0.
-                    /* Bellido: change from decreasing seq number to changing most significant bit
+                    /* Bellido: moved to worker
 				tcph->seq = htonl(ntohl(tcph->seq) - 8000); // Decrease SEQ number.
                 */
-                tcph->seq = htonl(ntohl(tcph->seq) ^ 1 << 31 ); // Change most significant bit
 
 				if (DEBUG_DEDUPLICATION == true) {
 					sprintf( message,

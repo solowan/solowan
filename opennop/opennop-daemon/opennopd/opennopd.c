@@ -95,7 +95,7 @@
 #define PACKET_NUMBER 131072
 #define DEF_THR_NUM 1
 #define DEF_FP_PER_PKT 32
-#define DEF_FPS_FACTOR 4
+#define DEF_FPS_FACTOR 2
 
 //#ifndef BASIC
 //#define BASIC
