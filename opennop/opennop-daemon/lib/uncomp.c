@@ -2,27 +2,35 @@
 
   uncomp.c
 
-  This file is part of OpenNOP-SoloWAN distribution.
-  No modifications made from the original file in OpenNOP distribution.
+    This file is part of OpenNOP-SoloWAN distribution.
 
-  Copyright (C) 2014 OpenNOP.org (yaplej@opennop.org)
+    Copyright (C) 2014 Center for Open Middleware (COM) 
+    Universidad Politecnica de Madrid, SPAIN
 
-    OpenNOP is an open source Linux based network accelerator designed 
-    to optimise network traffic over point-to-point, partially-meshed and 
-    full-meshed IP networks.
+    OpenNOP-SoloWAN is an enhanced version of the Open Network Optimization 
+    Platform (OpenNOP) developed to add it deduplication capabilities using
+    a modern dictionary based compression algorithm. 
+
+    SoloWAN is a project of the Center for Open Middleware (COM) of Universidad 
+    Politecnica de Madrid which aims to experiment with open-source based WAN 
+    optimization solutions.
 
   References:
 
+    SoloWAN: solowan@centeropenmiddleware.com
+             https://github.com/centeropenmiddleware/solowan/wiki
     OpenNOP: http://www.opennop.org
+    Center for Open Middleware (COM): http://www.centeropenmiddleware.com
+    Universidad Politecnica de Madrid (UPM): http://www.upm.es   
 
   License:
 
-    OpenNOP is free software: you can redistribute it and/or modify
+    OpenNOP-SoloWAN is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
 
-    OpenNOP is distributed in the hope that it will be useful,
+    OpenNOP-SoloWAN is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
@@ -50,54 +58,35 @@
 
 inline static void local_update_caches(pDeduplicator pd, unsigned char *packet, uint16_t pktlen, uint32_t computedPacketHash) {
 
+   FPEntryB pktFps[MAX_FP_PER_PKT];
+   int i;
+   struct timeval tiempo;
+   unsigned int fpNum;
+
+   if (pktlen < BETA) return; // Short packets are never optimized
+   fpNum = calculateRelevantFPs(pktFps, packet, pktlen);
+
+   if (debugword & LOCAL_UPDATE_CACHE_MASK) {
+	gettimeofday(&tiempo,NULL);
+	LOGDEBUG(lc_dedup, "[LOCAL UPDATE CACHE]: at %ld.%ld computedPacketHash %x len %d", tiempo.tv_sec, tiempo.tv_usec, computedPacketHash, pktlen);
+   }
+
    if (shared_dictionary_mode) {
 
-	FPStruct fptopkt[MAX_FP_PER_PKT];
-	int i;
-	unsigned char message[LOGSZ];
-	struct timeval tiempo;
-	unsigned int fpNum;
-
-	if (pktlen < BETA) return; // Short packets are never optimized
-	fpNum = calculateRelevantFPs(fptopkt, packet, pktlen);
-
-
-	if (debugword & LOCAL_UPDATE_CACHE_MASK) {
-		gettimeofday(&tiempo,NULL);
-		sprintf(message, "[LOCAL UPDATE CACHE]: at %d.%d computedPacketHash %x len %d\n", tiempo.tv_sec, tiempo.tv_usec, computedPacketHash, pktlen);
-		logger(LOG_INFO, message);
-	}
-
-
-	putPktAndFPsDesc(packet,pktlen,computedPacketHash,fptopkt,fpNum);	
+	putPktAndFPsDesc(packet,pktlen,computedPacketHash,pktFps,fpNum);	
 
    } else {
 
-	FPEntryB pktFps[MAX_FP_PER_PKT];
-	int i;
-	unsigned char message[LOGSZ];
-	struct timeval tiempo;
-	unsigned int fpNum;
-
-	if (pktlen < BETA) return; // Short packets are never optimized
-	fpNum = calculateRelevantFPs(pktFps, packet, pktlen);
 	pthread_mutex_lock(&pd->cerrojo);
 
 	// Store packet in PS
 	int64_t currPktId;
 	currPktId = putPkt(&pd->ps,packet,pktlen,computedPacketHash);
 
-	if (debugword & LOCAL_UPDATE_CACHE_MASK) {
-		gettimeofday(&tiempo,NULL);
-		sprintf(message, "[LOCAL UPDATE CACHE]: at %d.%d computedPacketHash %x len %d\n", tiempo.tv_sec, tiempo.tv_usec, computedPacketHash, pktlen);
-		logger(LOG_INFO, message);
-	}
-
 	for (i=fpNum-1; i >= 0; i--) {
 		putFP(pd->fps, &pd->ps, pktFps[i].fp, currPktId, pktFps[i].offset, &pd->compStats);
 		if (debugword & LOCAL_UPDATE_CACHE_MASK) {
-				sprintf(message, "[LOCAL UPDATE CACHE]: store FP %" PRIx64 " for hash %x pktId %" PRIu64 "\n",pktFps[i].fp, computedPacketHash, currPktId);
-				logger(LOG_INFO, message);
+			LOGDEBUG(lc_dedup, "[LOCAL UPDATE CACHE]: store FP %" PRIx64 " for hash %x pktId %" PRIu64 "",pktFps[i].fp, computedPacketHash, currPktId);
 		}
 	}
 	pthread_mutex_unlock(&pd->cerrojo);
@@ -110,7 +99,6 @@ inline static void local_update_caches(pDeduplicator pd, unsigned char *packet, 
 
 void update_caches(pDeduplicator pd, unsigned char *packet, uint16_t pktlen) {
 
-	unsigned char message[LOGSZ];
 	struct timeval tiempo;
 	uint32_t computedPacketHash;
 
@@ -118,8 +106,7 @@ void update_caches(pDeduplicator pd, unsigned char *packet, uint16_t pktlen) {
 
 	if (debugword & UPDATE_CACHE_MASK) {
 		gettimeofday(&tiempo,NULL);
-		sprintf(message, "[UPDATE CACHE]: entering at %d.%d\n", tiempo.tv_sec, tiempo.tv_usec);
-		logger(LOG_INFO, message);
+		LOGDEBUG(lc_dedup, "[UPDATE CACHE]: entering at %ld.%ld", tiempo.tv_sec, tiempo.tv_usec);
 	}
         MurmurHash3_x86_32  (packet, pktlen, SEED, (void *) &computedPacketHash);
 	local_update_caches(pd, packet, pktlen, computedPacketHash);
@@ -128,8 +115,7 @@ void update_caches(pDeduplicator pd, unsigned char *packet, uint16_t pktlen) {
 	pd->compStats.processedPackets++;
 	if (debugword & UPDATE_CACHE_MASK) {
 		gettimeofday(&tiempo,NULL);
-		sprintf(message, "[UPDATE CACHE]: exiting at %d.%d\n", tiempo.tv_sec, tiempo.tv_usec);
-		logger(LOG_INFO, message);
+		LOGDEBUG(lc_dedup, "[UPDATE CACHE]: exiting at %ld.%ld", tiempo.tv_sec, tiempo.tv_usec);
 	}
 }
 
@@ -148,28 +134,27 @@ void update_caches(pDeduplicator pd, unsigned char *packet, uint16_t pktlen) {
 extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, unsigned char *optpkt, uint16_t optlen, UncompReturnStatus *status) {
 
    if (shared_dictionary_mode) {
-	uint32_t hash;
+	//uint32_t hash;
 	uint32_t computedPacketHash, sentPktHash;
 	uint16_t offset;
 	uint16_t orig = 0;
-	uint16_t firstPassPktLen;
 	unsigned int curr;
 	uint16_t orig_optlen;
-	unsigned char *orig_pkt;
-        unsigned char message[LOGSZ];
+	//unsigned char *orig_pkt;
 	PktChunk fptopkt[MAX_FP_PER_PKT];
 	PktFrag  pktfr[MAX_FP_PER_PKT];
 	uint16_t fpNum;
+	typedef struct {
+		unsigned char *dst;
+		unsigned int len;
+	} ptrFrag;
+	ptrFrag tablePtrFrag[MAX_FP_PER_PKT];
 
 	int failed;
 
 	orig_optlen = optlen;
-	orig_pkt = optpkt;
+	//orig_pkt = optpkt;
 
-	// pthread_mutex_lock(&pd->cerrojo);
-
-	optlen = orig_optlen;
-	optpkt = orig_pkt;
 	*pktlen=0;
 	pd->compStats.inputBytes += optlen;
 	pd->compStats.processedPackets++;
@@ -202,7 +187,7 @@ extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, un
                         // pthread_mutex_unlock(&pd->cerrojo);
                         return;
         	}
-		// memcpy(packet+orig,optpkt,offset);
+		memcpy(packet+orig,optpkt,offset);
 		orig += offset;
 		*pktlen += offset;
 		optpkt += offset;
@@ -240,6 +225,10 @@ extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, un
 			return;
 		}
 
+		
+		tablePtrFrag[fpNum].dst = (unsigned char *) packet+orig;
+		tablePtrFrag[fpNum].len = fpt->right-fpt->left+1;
+
 		orig += fpt->right-fpt->left+1;
 		*pktlen += fpt->right-fpt->left+1;
 
@@ -256,6 +245,7 @@ extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, un
 				// pthread_mutex_unlock(&pd->cerrojo);
 				return;
 			}
+			memcpy(packet+orig,optpkt,optlen);
 			orig += optlen;
 			*pktlen += optlen;
 			optlen = 0;
@@ -267,6 +257,7 @@ extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, un
 				// pthread_mutex_unlock(&pd->cerrojo);
 				return;
 			}
+			memcpy(packet+orig,optpkt,offset);
 			orig += offset;
 			*pktlen += offset;
 			optpkt += offset;
@@ -293,72 +284,11 @@ extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, un
 		return;
 	}
 
-	orig = curr = 0;
-	optlen = orig_optlen;
-	optpkt = orig_pkt;
-	firstPassPktLen = *pktlen;
-	*pktlen=0;
-
-	sentPktHash = ntoh32(optpkt);
-	optpkt += sizeof(uint32_t);
-	optlen -= sizeof(uint32_t);
-	offset = ntoh16(optpkt);
-	optpkt += sizeof(uint16_t);
-	optlen -= sizeof(uint16_t);
-
-	if (offset > 0) {
-		memcpy(packet,optpkt,offset);
-		orig += offset;
-		*pktlen += offset;
-		optpkt += offset;
-		optlen -= offset;
+	failed = 0;
+	for (curr = 0; curr<fpNum; curr++) {
+		if (pktfr[curr].pktFragLen == 0) {failed = 1; break;}	
+		else memcpy(tablePtrFrag[curr].dst,pktfr[curr].pktFrag,tablePtrFrag[curr].len);
 	}
-
-	while (optlen >= sizeof(uint64_t) + sizeof(uint32_t)+3*sizeof(uint16_t)) {
-
-		PktFrag *fpt = &pktfr[curr];
-		uint16_t left, right;
-		failed = (fpt->pktFragLen == 0);
-		if (failed) break;
-
-		optpkt += sizeof(uint64_t);
-		optlen -= sizeof(uint64_t);
-
-		optpkt += sizeof(uint32_t);
-		optlen -= sizeof(uint32_t);
-
-		left = ntoh16(optpkt);
-		optpkt += sizeof(uint16_t);
-		optlen -= sizeof(uint16_t);
-
-		right = ntoh16(optpkt);
-		optpkt += sizeof(uint16_t);
-		optlen -= sizeof(uint16_t);
-
-		memcpy(packet+orig,fpt->pktFrag,right-left+1);
-
-		orig += right-left+1;
-		*pktlen += right-left+1;
-
-		curr++;
-
-		offset = ntoh16(optpkt);
-		optpkt += sizeof(uint16_t);
-		optlen -= sizeof(uint16_t);
-		if (offset == 0xffff) {
-			memcpy(packet+orig,optpkt,optlen);
-			orig += optlen;
-			*pktlen += optlen;
-			optlen = 0;
-		} else {
-			memcpy(packet+orig,optpkt,offset);
-			orig += offset;
-			*pktlen += offset;
-			optpkt += offset;
-			optlen -= offset;
-		}
-	}
-
 	if (failed) {
 		*pktlen = 0;
 		status->code = UNCOMP_FP_NOT_FOUND;
@@ -384,18 +314,17 @@ extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, un
 		status->code = UNCOMP_BAD_PACKET_HASH;
 	}
 
-   } else {
+   } else { // Not shared dictionary
 	uint64_t tentativeFP;
-	uint32_t hash;
+	//uint32_t hash;
 	uint32_t tentativePktHash, computedPacketHash, sentPktHash;
 	uint16_t offset;
 	uint16_t orig = 0;
 	FPEntryB *fpp;
 	uint16_t left, right;
-	unsigned char curr;
+	//unsigned char curr;
 	uint16_t orig_optlen;
 	unsigned char *orig_pkt;
-        unsigned char message[LOGSZ];
 
 	int failed;
 
@@ -461,8 +390,7 @@ extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, un
 
 			if (fpp == NULL) {
 				if (debugword & UNCOMP_MASK) {
-					sprintf(message, "[UNCOMP]: cannot find FP/PktHash pair tentativeFP %" PRIx64 " tentativePktHash %x\n",tentativeFP,tentativePktHash);
-					logger(LOG_INFO, message);
+					LOGDEBUG(lc_dedup, "[UNCOMP]: cannot find FP/PktHash pair tentativeFP %" PRIx64 " tentativePktHash %x",tentativeFP,tentativePktHash);
 				}
 				// *pktlen = 0;
 				// status->code = UNCOMP_FP_NOT_FOUND;

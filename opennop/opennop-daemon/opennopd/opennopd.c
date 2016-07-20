@@ -55,7 +55,7 @@
 #include <string.h>
 #include <signal.h>
 #include <pthread.h> // for multi-threading
-#include <unistd.h> // for sleep function
+#include <unistd.h>  // for sleep function
 #include <ifaddrs.h> // for getting ip addresses
 #include <netdb.h>
 
@@ -86,8 +86,9 @@
 #include "01dedup.h"
 #include "solowan_rolling.h"
 #include "debugd.h"
+#include "log4c.h"
 
-#define DEBUG 1
+// #define DEBUG 
 #define DAEMON_NAME "opennopd"
 #define PID_FILE "/var/run/opennopd.pid"
 #define LOOPBACKIP 16777343UL // Loopback IP address 127.0.0.1.
@@ -97,13 +98,6 @@
 #define DEF_FP_PER_PKT 32
 #define DEF_FPS_FACTOR 2
 
-//#ifndef BASIC
-//#define BASIC
-//#endif
-
-#ifndef ROLLING
-#define ROLLING
-#endif
 
 /* Global Variables. */
 int servicestate = RUNNING; // Current state of the service.
@@ -121,10 +115,11 @@ int main(int argc, char *argv[]) {
 	__u32 tempIP;
 //	int s;
 	int i;
-	char message[LOGSZ];
 	char strIP[20];
 //	char host[NI_MAXHOST];
-	char path[100] = "/etc/opennop/opennop.conf";
+	char config_file[100] = "/etc/opennop/opennop.conf";
+	char pid_file[100]    = "/var/run/solowan.pid";
+	char dir[100]    = "";
 	int tmp;
 	__u32 packet_size = PACKET_SIZE, packet_number = PACKET_NUMBER, thr_num = DEF_THR_NUM;
         __u32 fpPerPkt = DEF_FP_PER_PKT, fpsFactor = DEF_FPS_FACTOR;
@@ -145,7 +140,8 @@ int main(int argc, char *argv[]) {
 	signal(SIGPIPE,SIG_IGN);
 
 	int c;
-	while ((c = getopt(argc, argv, "nh|help")) != -1) {
+	//while ((c = getopt(argc, argv, "nh|help")) != -1) {
+	while ((c = getopt(argc, argv, "ndhc:p:")) != -1) {
 		switch (c) {
 		case 'h':
 			PrintUsage(argc, argv);
@@ -155,6 +151,26 @@ int main(int argc, char *argv[]) {
 			daemonize = 0;
 			isdaemon = false;
 			break;
+		case 'd':
+			daemonize = 1;
+			isdaemon = true;
+			break;
+		case 'c':    // Config file
+			if( access( optarg, R_OK ) != 0 ) {
+				fprintf (stderr, "ERROR: config file %s does not exist or is not readable\n", optarg);
+                                exit (1);
+			}
+			strcpy(config_file,optarg);
+			break;
+		case 'p':    // pid file
+                        strcpy(dir,optarg);
+			dirname(dir);
+			if( access( dir, W_OK ) != 0 ) {
+				fprintf (stderr, "ERROR: pid file %s is not writable\n", optarg);
+                                exit (1);
+			}
+			strcpy (pid_file,optarg);
+			break;
 		default:
 			PrintUsage(argc, argv);
 			break;
@@ -162,65 +178,59 @@ int main(int argc, char *argv[]) {
 	}
 
 
-	sprintf(message, "Initialization: %s daemon starting up.\n", DAEMON_NAME);
-	logger(LOG_INFO, message);
+	if (log4c_init()){
+    	printf("log4c_init() failed");
+	    exit(EXIT_FAILURE);
+	}
+	lc_main    = log4c_category_get("opennop.main");
+	lc_cli     = log4c_category_get("opennop.cli");    
+	lc_config  = log4c_category_get("opennop.config");
+	lc_fetcher = log4c_category_get("opennop.fetcher");
+	lc_worker  = log4c_category_get("opennop.worker");
+	lc_worker_retx = log4c_category_get("opennop.worker.retx");
+	lc_worker_opt  = log4c_category_get("opennop.worker.opt");
+	lc_worker_cli  = log4c_category_get("opennop.worker.cli");
+	lc_worker_counters  = log4c_category_get("opennop.worker.counters");
+	lc_comp    = log4c_category_get("opennop.comp");
+	lc_dedup   = log4c_category_get("opennop.dedup");
+	lc_tcpopts = log4c_category_get("opennop.tcpopts");
+	lc_sesman  = log4c_category_get("opennop.sesman");
+	lc_sesman_insert  = log4c_category_get("opennop.sesman.insert");
+	lc_sesman_get     = log4c_category_get("opennop.sesman.get");
+	lc_sesman_remove  = log4c_category_get("opennop.sesman.remove");
+	lc_sesman_update  = log4c_category_get("opennop.sesman.update");
+	lc_sesman_check   = log4c_category_get("opennop.sesman.check");
+	lc_memman  = log4c_category_get("opennop.memman");
+	lc_counters  = log4c_category_get("opennop.counters");
+	lc_queman  = log4c_category_get("opennop.queman");
+	LOGINFO(lc_main, "Initialization: %s daemon starting up.", DAEMON_NAME);
 
 	/*
 	 * Configuration: read the configuration file
 	 */
-	sprintf(message, "Configuring: reading file %s.\n", path);
-	logger(LOG_INFO, message);
+	LOGINFO(lc_main, "Configuring: reading file %s.", config_file);
 
-	tmp = configure(path, &localID, &packet_number, &packet_size, &thr_num, &fpPerPkt, &fpsFactor);
+	tmp = configure(config_file, &localID, &packet_number, &packet_size, &thr_num, &fpPerPkt, &fpsFactor);
 
 	if(tmp == 1){
-		sprintf(message, "Configuring error. EXIT\n");
-		logger(LOG_INFO, message);
+		LOGINFO(lc_main, "Configuring error. EXIT");
 		exit(EXIT_FAILURE);
 	}
 
-	sprintf(message, "Initialization: Version %s.\n", VERSION);
-	logger(LOG_INFO, message);
+	LOGINFO(lc_main, "Initialization: Version %s.", VERSION);
 
 	/*
 	 * Get the numerically highest local IP address.
 	 * This will be used as the acceleratorID.
 	 */
 	if (getifaddrs(&ifaddr) == -1) {
-		sprintf(message, "Initialization: Error opening interfaces.\n");
-		logger(LOG_INFO, message);
+		LOGINFO(lc_main, "Initialization: Error opening interfaces.");		
 		exit(EXIT_FAILURE);
 	}
 
-//	for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) { // loop through all interfaces.
-//
-//		if (ifa->ifa_addr != NULL) {
-//
-//			if (ifa->ifa_addr->sa_family == AF_INET) { // get all IPv4 addresses.
-//				s = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in),
-//						host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
-//
-//				if (s != 0) {
-//					exit(EXIT_FAILURE);
-//				}
-//
-//				inet_pton(AF_INET, (char *) &host, &tempIP); // convert string to decimal.
-//
-//				/*
-//				 * Lets fine the largest local IP, and use that as accelleratorID
-//				 * Lets also exclude 127.0.0.1 as a valid ID.
-//				 */
-//				if ((tempIP > localID) && (tempIP != LOOPBACKIP)) {
-//					localID = tempIP;
-//				}
-//			} // end get all IPv4 addresses.
-//		} // end ifa->ifa_addr NULL test.
-//	} // end loop through all interfaces.
-
 	if (localID == 0) { // fail if no usable IP found.
 		inet_ntop(AF_INET, &tempIP, strIP, INET_ADDRSTRLEN);
-		sprintf(message, "Initialization: No usable IP Address. %s\n", strIP);
-		logger(LOG_INFO, message);
+		LOGINFO(lc_main, "Initialization: No usable IP Address. %s", strIP);
 		exit(EXIT_FAILURE);
 	}
 
@@ -236,9 +246,8 @@ int main(int argc, char *argv[]) {
 	/* Our process ID and Session ID */
 	pid_t pid, sid;
 	if (daemonize) {
-		sprintf(message, "Initialization: Daemonizing the %s process.\n",
-				DAEMON_NAME);
-		logger(LOG_INFO, message);
+
+		LOGINFO(lc_main, "Initialization: Daemonizing the %s process.", DAEMON_NAME);
 
 		/* Fork off the parent process */
 		pid = fork();
@@ -274,6 +283,18 @@ int main(int argc, char *argv[]) {
 		close(STDERR_FILENO);
 	}
 
+	// Save PID in pid file
+	FILE *fp = fopen(pid_file, "w");
+    	if (!fp) {
+        	perror("fopen");
+        	exit(EXIT_FAILURE);
+    	}
+    	fprintf(fp, "%d\n", getpid());
+    	fclose(fp);
+	//fprintf('/var/run/opennop.pid', "%d", getpid());
+
+
+
 	/*
 	 * Starting up the daemon.
 	 */
@@ -285,21 +306,13 @@ int main(int argc, char *argv[]) {
 		//set_workers(sysconf(_SC_NPROCESSORS_ONLN) * 2);
 	}
 
-#ifdef ROLLING
 	init_common(packet_number,packet_size, fpPerPkt, fpsFactor, shareddict);
-	init_debugd() ;
-#endif
 
  	for (i = 0; i < get_workers(); i++) {
 		create_worker(i);
 	}
 
-#ifdef BASIC
 	create_hashmap(&ht); // Create hash table
-#endif
-
-	// Only one type of optimization can be active
-//	assert(deduplication != compression);
 
 	/*
 	 * Create the fetcher thread that retrieves
@@ -312,8 +325,7 @@ int main(int argc, char *argv[]) {
 	pthread_create(&t_counters, NULL, counters_function, (void *) NULL);
 	pthread_create(&t_memorymanager, NULL, memorymanager_function, (void *) NULL);
 
-	sprintf(message, "[OpenNOP]: Started all threads.\n");
-	logger(LOG_INFO, message);
+	LOGINFO(lc_main, "Started all threads.");
 
 	/*
 	 * All the threads have been created now commands should be registered.
@@ -350,32 +362,24 @@ int main(int argc, char *argv[]) {
 	 * Rejoin all threads before we exit!
 	 */
 	rejoin_fetcher();
-	sprintf(message, "[OpenNOP] Fetcher joined\n");
-	logger(LOG_INFO, message);
+	LOGINFO(lc_main, "Fetcher joined");
 	pthread_join(t_cleanup, NULL);
-	sprintf(message, "joined cleanup\n");
-	logger(LOG_INFO, message);
+	LOGINFO(lc_main, "Cleanup joined");
 	pthread_join(t_healthagent, NULL);
-	sprintf(message, "joined health\n");
-	logger(LOG_INFO, message);
+	LOGINFO(lc_main, "Health joined");
 	pthread_join(t_cli, NULL);
-	sprintf(message, "joined cli\n");
-	logger(LOG_INFO, message);
+	LOGINFO(lc_main, "Cli joined");
 	pthread_join(t_counters, NULL);
-	sprintf(message, "joined counters\n");
-	logger(LOG_INFO, message);
+	LOGINFO(lc_main, "Counters joined");
 	pthread_join(t_memorymanager, NULL);
 
 	for (i = 0; i < get_workers(); i++) {
 		rejoin_worker(i);
 	}
-#ifdef BASIC
 	remove_hashmap(ht);
-#endif
 	clear_sessiontable();
 
-	sprintf(message, "Exiting: %s daemon exiting", DAEMON_NAME);
-	logger(LOG_INFO, message);
+	LOGINFO(lc_main, "Exiting: %s daemon exiting", DAEMON_NAME);
 
 	exit(EXIT_SUCCESS);
 }

@@ -809,6 +809,7 @@ size_t qlz_compress(const void *source, char *destination, size_t size, qlz_stat
 size_t qlz_decompress(const char *source, void *destination, qlz_state_decompress *state)
 {
 	size_t dsiz = qlz_size_decompressed(source);
+	if (dsiz > MAX_PKT_SIZE()) return -1;
 
 #if QLZ_STREAMING_BUFFER > 0
 	if (state->stream_counter + qlz_size_decompressed(source) - 1 >= QLZ_STREAMING_BUFFER) 

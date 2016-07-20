@@ -66,18 +66,19 @@ __u32 daddr, __u16 dest, __u32 ack_seq){
 	char packet[BUFSIZE];
 	struct iphdr *iph = NULL;
 	struct tcphdr *tcph = NULL;
-	struct sockaddr_in sin, din;
+	//struct sockaddr_in sin;
+	struct sockaddr_in din;
 	__u16 tcplen;
 
 	memset(packet, 0, BUFSIZE);
 
-	sin.sin_family = AF_INET;
+	//sin.sin_family = AF_INET;
 	din.sin_family = AF_INET;
 	
-	sin.sin_port = source;
+	//sin.sin_port = source;
 	din.sin_port = dest;
 	
-	sin.sin_addr.s_addr = saddr;
+	//sin.sin_addr.s_addr = saddr;
 	din.sin_addr.s_addr = daddr;
 
 	iph = (struct iphdr *)packet;
@@ -108,7 +109,20 @@ __u32 daddr, __u16 dest, __u32 ack_seq){
 	tcph->ack = 1; // ACK flag.
 	tcph->urg = 0; // URG flag.
 	
-	__set_tcp_option((__u8 *)iph,32,6,localID); // Add the Accelerator ID to this packet.
+	if (__set_tcp_option((__u8 *)iph,32,3,2) == -1) { // Add the Accelerator ID to this packet.
+		LOGDEBUG(lc_sesman, "Sessioncleanup: Cannot add accelerator ID, sessioncleanup.c, IP datagram ID %x, current value of TCP doff %d",ntohs(iph->id), tcph->doff);
+	} else {
+    		unsigned char *tcpdata =  (unsigned char *) tcph + tcph->doff * 4; // Find starting location of the TCP data.
+                pOpennopHeader oh = (pOpennopHeader) tcpdata;
+                oh->opennopID = localID;
+                oh->seqNo = 0;
+                oh->compression = 0;
+                oh->deduplication = 0;
+                oh->reasonForNoOptimization = NOT_RELEVANT;
+                oh->queuenum = 0;
+                oh->pattern = OPENNOP_PATTERN;
+                iph->tot_len = htons(ntohs(iph->tot_len)+sizeof(OpennopHeader));
+	}
 	
 	tcplen = ntohs(iph->tot_len) - iph->ihl*4;
 	tcph->check = 0;
@@ -196,20 +210,17 @@ void cleanuplist (struct session_head *currentlist){
 void *cleanup_function(void *data){
 	int one = 1;
 	const int *val = &one;
-	char message [LOGSZ];
 	__u32 i = 0;
 	
 	rawsock = socket(PF_INET, SOCK_RAW, IPPROTO_TCP);
 	
 	if (rawsock < 0){
-		sprintf(message, "Initialization: Error opening raw socket.\n");
-		logger(LOG_INFO, message);
+		LOGDEBUG(lc_sesman, "Initialization: Error opening raw socket.");
 		exit(EXIT_FAILURE);
 	}
 	
 	if(setsockopt(rawsock, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0){
-		sprintf(message, "Initialization: Error setting socket options.\n");
-		logger(LOG_INFO, message);
+		LOGDEBUG(lc_sesman, "Initialization: Error setting socket options.");
 		exit(EXIT_FAILURE);
 	}
 	

@@ -69,6 +69,8 @@ const char delimiters[] = " ";
 pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 //struct command *tail;
 
+int DEBUG_CLICOMMANDS = false;
+
 struct command* allocate_command(){
 	struct command *newcommand = (struct command *) malloc (sizeof (struct command));
 	if(newcommand == NULL){
@@ -115,17 +117,14 @@ int execute_commands(int client_fd, const char *command_name, int d_len){
 	struct command_head *currentnode = NULL;
 	struct command *currentcommand = NULL;
 	struct command *executedcommand = NULL;
-	char message[LOGSZ];
 
-	sprintf(message, "CLI: Begin processing a command.\n");
-	logger(LOG_INFO, message);
+	LOGDEBUG(lc_cli, "Begin processing a command");
 
 	if((head == NULL) || (head->next == NULL)){
 		/*
 		 * Cannot execute any commands if there are none.
 		 */
-		sprintf(message, "CLI: No known commands.\n");
-		logger(LOG_INFO, message);
+		LOGDEBUG(lc_cli, "No known commands");
 		shutdown = CLI_INV_CMD;
 		return shutdown;
 	}
@@ -159,8 +158,7 @@ int execute_commands(int client_fd, const char *command_name, int d_len){
 			 * Show help for the current node then break.
 			 * Need the help function to accept the currentnode as a parameter.
 			 */
-			sprintf(message, "CLI: Cound'nt find the command.\n");
-			logger(LOG_INFO, message);
+			LOGDEBUG(lc_cli, "Cound'nt find the command");
 			/* If we're exiting from this point, free the allocations made  */
 			if (cp){
 				free(cp);
@@ -171,8 +169,7 @@ int execute_commands(int client_fd, const char *command_name, int d_len){
 		} else {
 			/* We've got some command or token */
 			if(currentcommand->child.next != NULL){
-				sprintf(message, "CLI: Command [%s] has children.\n", token);
-				logger(LOG_INFO, message);
+				LOGDEBUG(lc_cli, "Command [%s] has children", token);
 				currentnode = &currentcommand->child;
 				currentcommand = NULL;
 			}else{
@@ -180,23 +177,19 @@ int execute_commands(int client_fd, const char *command_name, int d_len){
 				 * We found a command in this node.
 				 * There are no other child nodes so its the last one.
 				 */
-				sprintf(message, "CLI: Locating [%s] command .\n", token);
-				logger(LOG_INFO, message);
+				LOGDEBUG(lc_cli, "Locating [%s] command", token);
 
 				while((executedcommand == NULL) && (currentcommand != NULL)){
-					sprintf(message, "CLI: Current command [%s].\n", currentcommand->command );
-					logger(LOG_INFO, message);
+					LOGDEBUG(lc_cli, "Current command [%s]", currentcommand->command );
 
 					if(currentcommand->command_handler == NULL){
-						sprintf(message, "CLI: Command has no handler.\n");
-						logger(LOG_INFO, message);
+						LOGDEBUG(lc_cli, "Command has no handler");
 					}
 
 					if((!strcmp(currentcommand->command,token)) && (currentcommand->command_handler != NULL)){
 
 						if(currentcommand->hasparams == true){
-							sprintf(message, "CLI: Command has parameters.\n");
-							logger(LOG_INFO, message);
+							LOGDEBUG(lc_cli, "Command has parameters");
 							/*
 							 * NOTE: I found that you cannot pass *cp because its modified by strtok_r()
 							 * The modification removed the " " delimiter and must replace it with a \0
@@ -215,8 +208,7 @@ int execute_commands(int client_fd, const char *command_name, int d_len){
 
 							if(token != NULL){
 								if (strlen(saved_token) == 0) {
-				                            	    sprintf(message, "CLI: Command has no parameters.\n");
-				                            	    logger(LOG_INFO, message);
+				                            	    LOGDEBUG(lc_cli, "Command has no parameters");
 				                            	    shutdown = (currentcommand->command_handler)(client_fd, NULL, 0);
 								}
 								else {
@@ -228,13 +220,13 @@ int execute_commands(int client_fd, const char *command_name, int d_len){
 				                                        free(temp_token);
                                 				    parameters = malloc((idx + 1 ) * sizeof (char *));
 				                                    if ( NULL == parameters){
-				                                        fprintf(stdout, "CLI: Couldn't allocate sufficient memory . Exiting \n");
+				                                        fprintf(stdout, "Couldn't allocate sufficient memory . Exiting \n");
 		                               			        exit(1);
                					                     }
 				                                    for( parametercount = 0 , token = strtok(saved_token, " "); parametercount <= idx ; ++parametercount , token = strtok(NULL, " ")){
 				                                        parameters[parametercount] = calloc(30 , strlen(token) + 1);
 				                                        if ( NULL == parameters[parametercount]){
-				                                            fprintf(stdout,"CLI: Couldn't allocate sufficient memory. Exiting \n");
+				                                            fprintf(stdout,"Couldn't allocate sufficient memory. Exiting \n");
 				                                            exit(1);
 				                                        }
 				                                        strncpy(*(parameters + parametercount), token, strlen(token));
@@ -248,16 +240,14 @@ int execute_commands(int client_fd, const char *command_name, int d_len){
 				                             * We might want to verify no other TOKENs are left.
        					                     * If the command has no params none should have been given.
 				                             */
-				                            sprintf(message, "CLI: Command has no parameters.\n");
-				                            logger(LOG_INFO, message);
+				                            LOGDEBUG(lc_cli, "Command has no parameters");
 				                            shutdown = (currentcommand->command_handler)(client_fd, NULL, 0);
                         				}
 				                        executedcommand = currentcommand;
 
 						}else{
                         				shutdown = CLI_ERR_CMD;
-                        				sprintf(message, "CLI: Command did not match.\n");
-                        				logger(LOG_INFO, message);
+                        				LOGDEBUG(lc_cli, "Command did not match");
 
 						}
 						currentcommand = currentcommand->next;
@@ -310,11 +300,9 @@ int register_command(const char *command_name, t_commandfunction handler_functio
 	char *token, *cp, *saved_token;
 	struct command_head *currentnode = NULL;
 	struct command *currentcommand = NULL;
-	char message[LOGSZ];
 
 	pthread_mutex_lock(&lock);
-	sprintf(message, "CLI: Begin registering [%s] command.\n", command_name);
-	logger(LOG_INFO, message);
+	LOGDEBUG(lc_cli, "Begin registering [%s] command", command_name);
 
 	if(head == NULL){
 		head = (struct command_head *) malloc (sizeof (struct command_head));
@@ -340,8 +328,7 @@ int register_command(const char *command_name, t_commandfunction handler_functio
 
 	while(token != NULL){
 		pthread_mutex_lock(&currentnode->lock); //Prevent race condition when saving command tree.
-		sprintf(message, "CLI: Register [%s] token.\n",token);
-		logger(LOG_INFO, message);
+		LOGDEBUG(lc_cli, "Register [%s] token",token);
 		/*
 		 * Search the current node for a
 		 * command matching the current TOKEN.
@@ -353,26 +340,22 @@ int register_command(const char *command_name, t_commandfunction handler_functio
 			 *Found the command for the current TOKEN.
 			 *Set it as the current node and search it for the next TOKEN.
 			 */
-			sprintf(message, "CLI: Found an existing token.\n");
-			logger(LOG_INFO, message);
+			LOGDEBUG(lc_cli, "Found an existing token");
 		}else{
 			/*
 			 * Did not find the command for the current TOKEN
 			 * We have to create it.
 			 */
-			sprintf(message, "CLI: Did not find an existing token.\n");
-			logger(LOG_INFO, message);
+			LOGDEBUG(lc_cli, "Did not find an existing token");
 			currentcommand = allocate_command();
 			currentcommand->command = token;
 
 			if(currentnode->next == NULL){
-				sprintf(message, "CLI: Creating first command in node.\n");
-				logger(LOG_INFO, message);
+				LOGDEBUG(lc_cli, "Creating first command in node");
 				currentnode->next = currentcommand;
 				currentnode->prev = currentcommand;
 			}else{
-				sprintf(message, "CLI: Creating new command in node.\n");
-				logger(LOG_INFO, message);
+				LOGDEBUG(lc_cli, "Creating new command in node");
 				currentnode->prev->next = currentcommand;
 				currentcommand->prev = currentnode->prev;
 				currentnode->prev = currentcommand;

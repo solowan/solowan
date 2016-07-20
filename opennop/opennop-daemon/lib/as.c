@@ -38,6 +38,8 @@
 #include <stdlib.h>
 #include <limits.h>
 #include "as.h"
+// DFC
+#include <strings.h>
 
 // Descriptor de la tabla asociativa
 typedef struct {

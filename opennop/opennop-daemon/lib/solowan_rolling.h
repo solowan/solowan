@@ -101,11 +101,6 @@ typedef struct {
 } PktChunk;
 
 typedef struct {
-	uint64_t fp;
-	uint16_t offset;
-} FPStruct;
-
-typedef struct {
 	uint16_t pktLen;
 	// unsigned char *pkt;
 	unsigned char pkt[PKTSIZELIMIT];
@@ -190,7 +185,7 @@ typedef struct {
 
 // Calculate relevant fingerprints of a given packet
 #define MAX_ITER 4
-unsigned int calculateRelevantFPs(void *pktFps, unsigned char *packet, uint16_t pktlen);
+unsigned int calculateRelevantFPs(FPEntryB *pktFps, unsigned char *packet, uint16_t pktlen);
 
 // Read and write bytes from/to network
 void hton16(unsigned char *p, uint16_t n) ;
@@ -215,7 +210,6 @@ extern unsigned int FPS_FACTOR(void);
 extern FPEntryB *getFPhash(FPStore fpStore, PktStore *pktStore, uint64_t fp, uint32_t pktHash);
 extern FPEntryB *getFPcontent(FPStore fpStore, PktStore *pktStore, uint64_t fp, unsigned char *chunk);
 extern PktEntry *getPkt(PktStore *pktStore, int64_t pktId);
-extern PktEntry *getPktHash(PktStore *pktStore, uint32_t pktHash);
 extern int64_t putPkt(PktStore *pktStore, unsigned char *pkt, uint16_t pktlen, uint32_t pktHash);
 extern void putFP(FPStore fpStore, PktStore *pktStore, uint64_t fp, int64_t pktId, uint16_t offset, Statistics *st);
 
@@ -294,10 +288,10 @@ extern void uncomp(pDeduplicator pd, unsigned char *packet, uint16_t *pktlen, un
 
 // Dictionary API // To be called within locks??
 
-extern void getPktsByFPsAndContent(unsigned char *pkt, uint16_t pktLen, uint32_t pktHash, FPStruct *fpa, uint16_t fpNum, DictElement *returnParam);
+extern void getPktsByFPsAndContent(unsigned char *pkt, uint16_t pktLen, uint32_t pktHash, FPEntryB *fpa, uint16_t fpNum, DictElement *returnParam);
 extern int getPktsByFPsAndHash(PktChunk *fpa, uint16_t fpNum, PktFrag *pf);
-extern void putPktAndFPsComp(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPStruct *fpa, uint16_t fpNum);
-extern void putPktAndFPsDesc(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPStruct *fpa, uint16_t fpNum);
+extern void putPktAndFPsComp(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPEntryB *fpa, uint16_t fpNum);
+extern void putPktAndFPsDesc(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPEntryB *fpa, uint16_t fpNum);
 
 
 extern unsigned int shared_dictionary_mode;

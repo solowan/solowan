@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="ISO-8859-1"?> 
+<!DOCTYPE log4c SYSTEM "">
+<log4c version="1.2.1"> 
+
+<config> 
+    <bufsize>0</bufsize> 
+    <debug level="0"/> 
+    <nocleanup>0</nocleanup> 
+    <reread>1</reread> 
+</config> 
+
+<rollingpolicy name="rollingpolicy" type="sizewin" maxsize="1024" maxnum="10" />
+
+<layout name="basic" type="basic"/>
+<layout name="dated" type="dated"/>
+
+<appender name="stdout"     type="stream"      layout="dated"/>
+<appender name="solowanlog" type="rollingfile" layout="dated" logdir="/var/log/" prefix="solowan.log" rollingpolicy="rollingpolicy" />
+
+<!-- 
+
+trace levels:
+  000  -> fatal
+  100  -> alert
+  200  -> crit
+  300  -> error    **
+  400  -> warn
+  500  -> notice
+  600  -> info     **
+  700  -> debug    **
+  800  -> trace    **
+  900  -> notset
+  1000 -> unknown
+
+levels marked by ** are the only ones used in solowan
+
+modules:
+  opennop.main
+  opennop.config
+  opennop.cli
+  opennop.fetcher
+  opennop.worker
+  opennop.worker.opt
+  opennop.worker.cli
+  opennop.worker.counters
+  opennop.dedup
+  opennop.tcpopts
+  opennop.sesman
+  opennop.sesman.insert
+  opennop.sesman.get
+  opennop.sesman.remove
+  opennop.sesman.update
+  opennop.sesman.check
+  opennop.memman
+  opennop.counters
+  opennop.queman
+
+-->
+
+<layout name="dated" type="dated"/>
+
+
+<category name="opennop" priority="info" appender="solowanlog"/>
+
+<category name="opennop.fetcher"          priority="debug" appender="solowanlog"/>
+
+<!--category name="opennop.main"             priority="debug" appender="stdout"/-->
+<!--category name="opennop.config"           priority="debug" appender="stdout"/-->
+<!--category name="opennop.cli"              priority="info" appender="stdout"/-->
+<!--category name="opennop.fetcher"          priority="debug" appender="stdout"/-->
+<!--category name="opennop.worker"           priority="debug" appender="solowanlog"/-->
+<!--category name="opennop.worker.retx"      priority="trace" appender="solowanlog"/-->
+<!--category name="opennop.worker.opt"       priority="info" appender="solowanlog"/-->
+<!--category name="opennop.worker.cli"       priority="fatal" appender="solowanlog"/-->
+<!--category name="opennop.worker.counters"  priority="fatal" appender="solowanlog"/-->
+<!--category name="opennop.dedup"            priority="debug" appender="stdout"/-->
+<!--category name="opennop.tcpopts"          priority="debug" appender="stdout"/-->
+<!--category name="opennop.sesman"           priority="debug" appender="stdout"/-->
+<!--category name="opennop.sesman.insert"    priority="debug" appender="stdout"/-->
+<!--category name="opennop.sesman.get"       priority="debug" appender="stdout"/-->
+<!--category name="opennop.sesman.remove"    priority="debug" appender="stdout"/-->
+<!--category name="opennop.sesman.update"    priority="debug" appender="solowanlog"/-->
+<!--category name="opennop.sesman.check"     priority="debug" appender="solowanlog"/-->
+<!--category name="opennop.memman"           priority="debug" appender="stdout"/-->
+<!--category name="opennop.counters"         priority="debug" appender="stdout"/-->
+<!--category name="opennop.queman"           priority="debug" appender="stdout"/-->
+
+
+<!--category name="opennop.main" priority="debug" appender="solowanlog"/-->
+
+</log4c>
+

@@ -64,6 +64,7 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <stdbool.h>
+#include <linux/tcp.h>
 #include "clisocket.h"
 #include "climanager.h"
 #include "debugd.h"
@@ -636,7 +637,8 @@ char ** opennop_completion (text, start, end)
      to complete.  Otherwise it is the name of a file in the current
      directory. */
 //  if (start == 0)
-    matches = completion_matches (text, command_generator);
+    //matches = completion_matches (text, command_generator); DFC
+    matches = rl_completion_matches (text, command_generator);
 
   return (matches);
 }
@@ -860,7 +862,8 @@ int main(int argc, char *argv[]) {
 	struct sockaddr_un server;
 	pthread_t t_fromserver;
 
-	if ((cli_client_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+	//if ((cli_client_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+	if ((cli_client_fd = socket(AF_UNIX, SOCK_STREAM, TCP_NODELAY)) == -1) {
 		perror("[cli_client]: socket");
 		exit(1);
 	}

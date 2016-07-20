@@ -1,0 +1,27 @@
+#!/bin/bash
+
+if [ $# -ne 1 ]
+  then
+    echo "Usage: update-solowan <repo>"
+    echo "       <repo>: 'pub' to update solowan-pub or 'priv' to update solowan-priv directories"
+    exit 1
+fi
+
+if [[ "$1" != 'priv' && "$1" != 'pub' ]]; then
+    echo "ERROR: argument must be priv or pub" 
+    exit 1
+fi
+
+
+echo "--"
+echo "-- Updating /root/solowan-$1 from git repository..."
+echo "--"
+
+if [[ "$1" == 'priv' ]]; then
+    cd solowan-priv
+    svn export --force https://github.com/centeropenmiddleware/l3p4-solowan.git/trunk/opennop
+else
+    cd solowan-pub
+    git pull
+fi
+

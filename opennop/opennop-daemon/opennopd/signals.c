@@ -47,16 +47,13 @@
 
 void signal_handler(int sig) 
 {
-	char message [LOGSZ];
 
 	switch(sig){
 		case SIGHUP:
-			sprintf(message, "Received SIGHUP signal.");
-			logger(LOG_INFO, message);
+			LOGINFO(lc_main, "Received SIGHUP signal.");
 			break;
 		case SIGTERM:
-			sprintf(message, "Received SIGTERM signal.\n");
-			logger(LOG_INFO, message);
+			LOGINFO(lc_main, "Received SIGTERM signal.");
 			
 			switch(servicestate){
 				case RUNNING:
@@ -77,22 +74,18 @@ void signal_handler(int sig)
 			
 			break;
 		case SIGQUIT:
-			sprintf(message, "Received SIGQUIT signal.");
-			logger(LOG_INFO, message);
+			LOGINFO(lc_main, "Received SIGQUIT signal.");
 			break;
                 case SIGINT:
-                        sprintf(message, "Received SIGINT signal.");
-                        logger(LOG_INFO, message);
+                        LOGINFO(lc_main, "Received SIGINT signal.");
                         exit(0);
                         break;
                 case SIGPIPE:
-                        sprintf(message, "Received SIGPIPE signal.");
-                        logger(LOG_INFO, message);
+                        LOGINFO(lc_main, "Received SIGPIPE signal.");
                         exit(0);
                         break;
 		default:
-			sprintf(message, "Unhandled signal (%s)", strsignal(sig));
-			logger(LOG_INFO, message);
+			LOGINFO(lc_main, "Unhandled signal (%s)", strsignal(sig));
 			break;
 	}
 }

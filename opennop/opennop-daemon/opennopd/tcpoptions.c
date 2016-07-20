@@ -43,7 +43,6 @@
 #include "tcpoptions.h"
 #include "logger.h"
 
-int DEBUG_TCPOPTIONS = false;
 
 __u8 optlen(const __u8 *opt, __u8 offset){
 	if (opt[offset] <= TCPOPT_NOP || opt[offset+1] == 0)
@@ -123,7 +122,6 @@ int __set_tcp_option(__u8 *ippacket, unsigned int tcpoptnum,
 	struct iphdr *iph;
 	__u16 tcplen;
 	__u8 i, optspace, addoff, spaceneeded, bytefield, count, *opt;
-	char message [LOGSZ];
 
 	iph = (struct iphdr *)ippacket;
 	tcph = (struct tcphdr *) (((u_int32_t *)ippacket) + iph->ihl);
@@ -208,18 +206,8 @@ int __set_tcp_option(__u8 *ippacket, unsigned int tcpoptnum,
 			// Get old TCP length.
 			tcplen = ntohs(iph->tot_len) - iph->ihl*4;
 				
-				if (DEBUG_TCPOPTIONS == true){
-					sprintf(message, "TCP Options: The old tcp length is %d!\n",tcplen);
-					logger(LOG_INFO, message);
-				}
-				
-				if (DEBUG_TCPOPTIONS == true){
-					sprintf(message, "TCP Options: The addoff is %d!\n",addoff);
-					logger(LOG_INFO, message);
-				}
-			
-			
-			
+			LOGDEBUG(lc_tcpopts, "TCP Options: The old tcp length is %d!",tcplen);
+			LOGDEBUG(lc_tcpopts, "TCP Options: The addoff is %d!",addoff);
 
 			// Moving tcp data back to new location.
 			memmove(((opt + tcph->doff*4) - sizeof(struct tcphdr)) + addoff*4,
@@ -263,30 +251,26 @@ int __set_tcp_option(__u8 *ippacket, unsigned int tcpoptnum,
 		}
 
 		// Fix packet length.
-		if (DEBUG_TCPOPTIONS == true){
-			sprintf(message, "TCP Options: Old IP packet length is %d!\n",ntohs(iph->tot_len));
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_tcpopts, "TCP Options: Old IP packet length is %d!",ntohs(iph->tot_len));
 		
 		iph->tot_len = htons(ntohs(iph->tot_len) + addoff*4);
 		
-		if (DEBUG_TCPOPTIONS == true){
-			sprintf(message, "TCP Options: New IP packet length is %d!\n",ntohs(iph->tot_len));
-			logger(LOG_INFO, message);
-		}
-
+		LOGDEBUG(lc_tcpopts, "TCP Options: New IP packet length is %d!",ntohs(iph->tot_len));
 		
 		// Get new TCP length.
 		tcplen = ntohs(iph->tot_len) - iph->ihl*4;
-		if (DEBUG_TCPOPTIONS == true){
-			sprintf(message, "TCP Options: New TCP segment length is %d!\n",tcplen);
-			logger(LOG_INFO, message);
-		}
-		
+		LOGDEBUG(lc_tcpopts, "TCP Options: New TCP segment length is %d!",tcplen);
 
 		return 0;
 	}
 	else{
+		LOGDEBUG(lc_tcpopts, "TCP Options: tcp doff %d, addoff is %d, asked %d",tcph->doff,addoff, tcpoptlen);
+		opt = (__u8 *)tcph + sizeof(struct tcphdr);
+		LOGDEBUG(lc_tcpopts, "TCP option contents already in packet: ");
+		for (i = 0; i < tcph->doff*4 - sizeof(struct tcphdr); i++ ) {
+			LOGDEBUG(lc_tcpopts, "%x ", opt[i]);
+			//LOGDEBUG(lc_tcpopts, "");
+		}
 			
 		return -1;
 	}

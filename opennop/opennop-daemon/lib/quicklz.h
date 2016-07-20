@@ -18,6 +18,8 @@
 
 // 1.5.0 final
 
+extern unsigned int MAX_PKT_SIZE(void);
+
 #ifndef QLZ_COMPRESSION_LEVEL
 
 	// 1 gives fastest compression speed. 3 gives fastest decompression speed and best

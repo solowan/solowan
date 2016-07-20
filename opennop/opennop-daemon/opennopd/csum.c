@@ -43,11 +43,11 @@
 
 unsigned short tcp_sum_calc(unsigned short len_tcp, unsigned short *src_addr, unsigned short *dest_addr, unsigned short *buff)
 {
-	struct tcphdr *tcph;
+	//struct tcphdr *tcph;
 	unsigned short prot_tcp = 6;
 	long sum = 0;
 	int i = 0;
-	tcph = (struct tcphdr *)buff;
+	//tcph = (struct tcphdr *)buff;
 	
 	/* add the pseudo header */	
 	sum += ntohs(src_addr[0]);

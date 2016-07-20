@@ -87,4 +87,6 @@ int shareddict_disable();
 extern int deduplication;
 extern int shareddict;
 
+extern int packetPipeline;
+
 #endif /* DEDUPLICATION_H_ */

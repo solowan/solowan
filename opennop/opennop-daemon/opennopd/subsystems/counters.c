@@ -48,9 +48,6 @@
 #include "counters.h"
 #include "climanager.h"
 
-int DEBUG_COUNTERS = true;
-int DEBUG_COUNTERS_REGISTER = false;
-
 /*
  * Time in seconds before updating the counters.
  */
@@ -58,7 +55,6 @@ int UPDATECOUNTERSTIMER = 5;
 struct counter_head counters;
 
 void *counters_function(void *dummyPtr) {
-	char message[LOGSZ];
 
 	while (servicestate >= RUNNING) {
 		sleep(UPDATECOUNTERSTIMER); // Sleeping for a few seconds.
@@ -72,8 +68,7 @@ void *counters_function(void *dummyPtr) {
 	/*
 	 * Thread is ending.
 	 */
-	sprintf(message, "Counters: Shutdown thread.\n");
-	logger(LOG_INFO, message);
+	LOGDEBUG(lc_counters, "Counters: Shutdown thread.");
 	return NULL;
 }
 
@@ -113,12 +108,8 @@ int calculate_ppsbps(__u32 previouscount, __u32 currentcount) {
  */
 int register_counter(t_counterfunction handler, t_counterdata data) {
 	struct counter *currentcounter;
-	char message[LOGSZ];
 
-	if (DEBUG_COUNTERS_REGISTER == true) {
-		sprintf(message, "Counters: Enter register_counter!");
-		logger(LOG_INFO, message);
-	};
+	LOGDEBUG(lc_counters, "Counters: Enter register_counter!");
 
 	/*
 	 * TODO:
@@ -146,10 +137,7 @@ int register_counter(t_counterfunction handler, t_counterdata data) {
 
 	pthread_mutex_unlock(&counters.lock);
 
-	if (DEBUG_COUNTERS_REGISTER == true) {
-		sprintf(message, "Counters: Exit register_counter!");
-		logger(LOG_INFO, message);
-	};
+	LOGDEBUG(lc_counters, "Counters: Exit register_counter!");
 	return 1;
 }
 

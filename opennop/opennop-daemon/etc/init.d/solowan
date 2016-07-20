@@ -13,17 +13,27 @@
 OPENNOP_DIR=/usr/local/sbin
 ADDFLOWS_SCRIPT=/etc/opennop/opennop-addflows.sh
 DELFLOWS_SCRIPT=/etc/opennop/opennop-delflows.sh
+LOG4C_RCPATH=/etc/opennop/
+PIDFILE=/var/run/solowan.pid
+#OPENNOP_LOG=/var/log/opennop.log
+STOPSTARTDELAY=2
 
 function solowan_start {
 
    echo "--"
-   PID=$( ps uax | grep "$OPENNOP_DIR/opennop" | grep -v grep | awk '{ print $2 }' )
+   PID=$( ps uaxw | grep "$OPENNOP_DIR/opennopd" | grep -v grep | awk '{ print $2 }' )
    if [ "$PID" ]; then
        echo "-- SoloWAN already started: PID=$PID. Call stop or restart first."
    else
        echo "-- Starting SoloWAN process"
-       $OPENNOP_DIR/opennopd -n >> /var/log/opennop.log &
-       PID=$( ps uax | grep opennop | grep -v grep | awk '{ print $2 }' )
+       #LOG4C_RCPATH=$LOG4C_RCPATH $OPENNOP_DIR/opennopd -n >> $OPENNOP_LOG &
+       #PID=$( ps uaxw | grep opennopd | grep -v grep | awk '{ print $2 }' )
+       echo "LOG4C_RCPATH=$LOG4C_RCPATH $OPENNOP_DIR/opennopd -d -p $PIDFILE &"
+       LOG4C_RCPATH=$LOG4C_RCPATH $OPENNOP_DIR/opennopd -d -p $PIDFILE &
+       #PID=$( ps uaxw | grep opennopd | grep -v grep | awk '{ print $2 }' )
+       #echo `ps uaxw | grep opennopd | grep -v grep`
+       sleep 2
+       PID=$( ps uaxw | grep opennopd | grep -v grep | awk '{ print $2 }' )
        if [ "$PID" ]; then
            echo "-- ...process $PID started."
            if [ -f "$ADDFLOWS_SCRIPT" ]; then
@@ -32,7 +42,7 @@ function solowan_start {
                "$ADDFLOWS_SCRIPT"
            fi
        else
-           echo "-- ...cannot start solowan process See /var/log/opennop.log for details."
+           echo "-- ...cannot start solowan process. See log traces for details."
        fi
    fi
    echo "--"
@@ -42,10 +52,13 @@ function solowan_start {
 function solowan_stop {
 
    echo "--"
-   PID=$( ps uax | grep "$OPENNOP_DIR/opennop" | grep -v grep | awk '{ print $2 }' )
+   #PID=$( ps uaxw | grep "$OPENNOP_DIR/opennopd" | grep -v grep | awk '{ print $2 }' )
+   PID=$( cat $PIDFILE )
    if [ "$PID" ]; then
        echo "-- Stopping solowan process $PID..."
-       killall -9 $OPENNOP_DIR/opennopd
+       #killall -v -9 $OPENNOP_DIR/opennopd
+       kill -9 $PID
+       rm -f $PIDFILE
    else
        echo "-- SoloWAN not running, nothing to stop..."
    fi
@@ -55,8 +68,32 @@ function solowan_stop {
        "$DELFLOWS_SCRIPT"
    fi
    echo "--"
+   solowan_status
 
 }
+
+function solowan_status {
+
+   RES=$( ps uaxw | grep "$OPENNOP_DIR/opennopd" | grep -v grep )
+   if [ "$RES" ]; then
+       echo "--"
+       echo "-- Solowan running:"
+       echo "--"
+       echo $RES
+       echo "--"
+       echo "-- Traffic redirected to SoloWAN: "
+       echo "--"
+       iptables -L -n | grep "NFQUEUE num 0" | awk '{ print $6,$7,$8,$9,$10,$11 }'
+       iptables -L -n -t mangle | grep "NFQUEUE num 0" | awk '{ print $6,$7,$8,$9,$10,$11 }'
+       echo "--"
+   else 
+       echo "--"
+       echo "-- Solowan NOT running"
+       echo "--"
+   fi
+
+}
+
 
 case "$1" in
  start)
@@ -69,28 +106,13 @@ case "$1" in
 
  restart)
    solowan_stop
-   sleep 2
+   echo "-- Waiting $STOPSTARTDELAY secs before restarting ..."
+   sleep $STOPSTARTDELAY
    solowan_start
    ;;
 
  status)
-   RES=$( ps uax | grep "$OPENNOP_DIR/opennop" | grep -v grep )
-   if [ "$RES" ]; then
-       echo "--"
-       echo "-- Solowan running:"
-       echo "--"
-       echo $RES
-       echo "--"
-       echo "-- Traffic redirected to SoloWAN: "
-       echo "--"
-       iptables -L | grep "NFQUEUE num 0" | awk '{ print $6,$7,$8,$9,$10,$11 }'
-       iptables -L -t mangle | grep "NFQUEUE num 0" | awk '{ print $6,$7,$8,$9,$10,$11 }'
-       echo "--"
-   else 
-       echo "--"
-       echo "-- Solowan NOT running"
-       echo "--"
-   fi
+   solowan_status
    ;;
 
  *)

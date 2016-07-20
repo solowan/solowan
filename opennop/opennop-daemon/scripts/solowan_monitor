@@ -1,6 +1,10 @@
 #!/bin/bash
 
-watch "opennop show sessions; opennop show workers; solowan_nfqueue; echo ''; opennop show stats out_dedup | grep FP_entries"
+# move to the directory where the script is located
+CDIR=`dirname $0`
+cd $CDIR
+
+watch "opennop show sessions; opennop show workers; ./solowan_nfqueue; echo ''; opennop show stats out_dedup | grep FP_entries"
 
 
 

@@ -266,7 +266,7 @@ unsigned int FP_STORE_SIZE(void) {return FPSTORESIZE;}
 unsigned int FP_PER_PKT(void) {return FPPERPKT;}
 unsigned int FPS_FACTOR(void) {return FPSFACTOR;}
 
-unsigned int calculateRelevantFPs(void *pfps, unsigned char *packet, uint16_t pktlen) {
+unsigned int calculateRelevantFPs(FPEntryB *fpma, unsigned char *packet, uint16_t pktlen) {
 
         uint64_t selectFPmask;
         uint64_t tentativeFP;
@@ -274,71 +274,35 @@ unsigned int calculateRelevantFPs(void *pfps, unsigned char *packet, uint16_t pk
         int endLoop;
         unsigned int fpNum = 1;
         int iter = 0;
-	FPEntryB *pktFps;
-	FPStruct *fpma;
 
-	if (shared_dictionary_mode) {
-		fpma = (FPStruct *) pfps;
+        // Calculate initial fingerprint
+        fpma[0].fp = full_rfp(packet);
+        fpma[0].offset = 0;
+	
+        selectFPmask = SELECT_FP_MASK;
 
-        	// Calculate initial fingerprint
-        	fpma[0].fp = full_rfp(packet);
-        	fpma[0].offset = 0;
-	
-        	selectFPmask = SELECT_FP_MASK;
-	
-        	// Calculate other relevant fingerprints
-        	tentativeFP = fpma[0].fp;
-        	previous = exploring = BETA;
-        	endLoop = (exploring >= pktlen);
-        	while (!endLoop) {
-                	tentativeFP = inc_rfp(tentativeFP, packet[exploring], packet[exploring-BETA]);
-                	if (((tentativeFP & selectFPmask) == 0) && (exploring - previous >= BETA/2)) {
-                        	previous = exploring;
-                        	fpma[fpNum].fp = tentativeFP;
-                        	fpma[fpNum].offset = exploring-BETA+1;
-                        	fpNum++;
-                	}
-                	if (++exploring >= pktlen) {
-                        	if ((fpNum < FPPERPKT) && (iter < MAX_ITER)) {
-                                	tentativeFP = fpma[0].fp;
-                                	previous = exploring = BETA;
-                                	selectFPmask = selectFPmask << 1;
-                                	iter++;
-                        	} else endLoop = 1;
-                	} else endLoop = (fpNum == FPPERPKT);
-        	}
-        	return fpNum;
-	} else {
-		pktFps = (FPEntryB *) pfps;
-        	// Calculate initial fingerprint
-        	pktFps[0].fp = full_rfp(packet);
-        	pktFps[0].offset = 0;
-	
-        	selectFPmask = SELECT_FP_MASK;
-	
-        	// Calculate other relevant fingerprints
-        	tentativeFP = pktFps[0].fp;
-        	previous = exploring = BETA;
-        	endLoop = (exploring >= pktlen);
-        	while (!endLoop) {
-                	tentativeFP = inc_rfp(tentativeFP, packet[exploring], packet[exploring-BETA]);
-                	if (((tentativeFP & selectFPmask) == 0) && (exploring - previous >= BETA/2)) {
-                        	previous = exploring;
-                        	pktFps[fpNum].fp = tentativeFP;
-                        	pktFps[fpNum].offset = exploring-BETA+1;
-                        	fpNum++;
-                	}
-                	if (++exploring >= pktlen) {
-                        	if ((fpNum < FP_PER_PKT()) && (iter < MAX_ITER)) {
-                                	tentativeFP = pktFps[0].fp;
-                                	previous = exploring = BETA;
-                                	selectFPmask = selectFPmask << 1;
-                                	iter++;
-                        	} else endLoop = 1;
-                	} else endLoop = (fpNum == FP_PER_PKT());
-        	}
-        	return fpNum;
-	}
+        // Calculate other relevant fingerprints
+        tentativeFP = fpma[0].fp;
+        previous = exploring = BETA;
+        endLoop = (exploring >= pktlen);
+        while (!endLoop) {
+                tentativeFP = inc_rfp(tentativeFP, packet[exploring], packet[exploring-BETA]);
+                if (((tentativeFP & selectFPmask) == 0) && (exploring - previous >= BETA/2)) {
+                       previous = exploring;
+                       fpma[fpNum].fp = tentativeFP;
+                       fpma[fpNum].offset = exploring-BETA+1;
+                       fpNum++;
+                }
+                if (++exploring >= pktlen) {
+                        if ((fpNum < FPPERPKT) && (iter < MAX_ITER)) {
+                                tentativeFP = fpma[0].fp;
+                                previous = exploring = BETA;
+                                selectFPmask = selectFPmask << 1;
+                                iter++;
+                        } else endLoop = 1;
+                } else endLoop = (fpNum == FPPERPKT);
+        }
+        return fpNum;
 }
 
 // UNSAFE FUNCTION, must be called inside code with locks
@@ -385,34 +349,14 @@ FPEntryB *getFPcontent(FPStore fpStore, PktStore *pktStore, uint64_t fp, unsigne
 PktEntry *getPkt(PktStore *pktStore, int64_t pktId) {
 	if (pktStore->pktId < pktId) return NULL;
 	if (pktId < pktStore->pktId - PKTSTORESIZE) return NULL;
-	return &pktStore->pkts[pktId % PKTSTORESIZE];
+	// return &pktStore->pkts[pktId % PKTSTORESIZE];
+	return &pktStore->pkts[pktId & (PKTSTORESIZE-1)];
 }
-
-// UNSAFE FUNCTION, must be called inside code with locks
-PktEntry *getPktHash(PktStore *pktStore, uint32_t pktHash) {
-#define BACKTRACELIM 1000
-	int64_t idx = pktStore->pktId % PKTSTORESIZE;
-	int curr = (int) idx;
-	int i;
-	if (idx >= BACKTRACELIM) {
-		for (i = curr; i >= curr - BACKTRACELIM; i--) {
-			if (pktStore->pkts[i].hash == pktHash) return &pktStore->pkts[i];
-		}
-	} else {
-		for (i=curr; i >= 0; i--) {
-			if (pktStore->pkts[i].hash == pktHash) return &pktStore->pkts[i];
-		}
-		for (i=PKTSTORESIZE-1; i >= PKTSTORESIZE-BACKTRACELIM+curr; i--) {
-			if (pktStore->pkts[i].hash == pktHash) return &pktStore->pkts[i];
-		}
-	}
-	return NULL;
-}
-
 
 // UNSAFE FUNCTION, must be called inside code with locks
 int64_t putPkt(PktStore *pktStore, unsigned char *pkt, uint16_t pktlen, uint32_t pktHash) {
-	int32_t pktIdx = (int32_t) (pktStore->pktId % PKTSTORESIZE);
+	// int32_t pktIdx = (int32_t) (pktStore->pktId % PKTSTORESIZE);
+	int32_t pktIdx = (int32_t) (pktStore->pktId & (PKTSTORESIZE-1));
 	memcpy(pktStore->pkts[pktIdx].pkt, pkt, pktlen);
 	pktStore->pkts[pktIdx].len = pktlen;
 	pktStore->pkts[pktIdx].hash = pktHash;
@@ -557,7 +501,7 @@ void getDescDictStatistics(Statistics *cs) {
 //  verifying its associated data pattern to avoid collisions.
 // Parameters:
 // * unsigned char *pkt. Pointer to the packet the passed fingerprints belong to.
-// * FPStruct *fpa. Pointer to an array of FPStruct structures, cointaining the computed fingerprints in the
+// * FPEntryB *fpa. Pointer to an array of FPEntryB structures, cointaining the computed fingerprints in the
 //   passed packet (pkt). This structure must have been previously filled by a call to calculateRelevantFPs(), so
 //   each entry have the following significant fields: fp, offset.
 // * uint16_t fpNum. Number of entries of the array pointed by fpa.
@@ -567,7 +511,7 @@ void getDescDictStatistics(Statistics *cs) {
 //   - pktLen: length of packet pointed in the pkt field or 0 if no match could be found.
 //   - pktHash: hash of the packet in the dictionary.
 //   - offset: where the packet in the dictionary has a match to the fingerprint in the passed packet.
-void getPktsByFPsAndContent(unsigned char *pkt, uint16_t pktLen, uint32_t pktHash, FPStruct *fpa, uint16_t fpNum, DictElement *returnParam) {
+void getPktsByFPsAndContent(unsigned char *pkt, uint16_t pktLen, uint32_t pktHash, FPEntryB *fpa, uint16_t fpNum, DictElement *returnParam) {
 	int i;
         uint32_t fpHash;
         FPEntry *fpp;
@@ -651,10 +595,10 @@ int getPktsByFPsAndHash(PktChunk *fpa, uint16_t fpNum, PktFrag *pf) {
 // * unsigned char *pkt. Pointer to the packet to be stored.
 // * uint16_t pktlen. Length of the packet to be stored.
 // * uint32_t computedPacketHash. Hash of the packet to be stored.
-// * FPStruct *fpa. Pointer to an array of structures with the fingerprints associated to the packet. This array must 
+// * FPEntryB *fpa. Pointer to an array of structures with the fingerprints associated to the packet. This array must 
 //   be filled with a call to calculateRelevantFPs().
 // * uint16_t fpNum. Number of entries in array fpa. Caller must ensure that it is not greater than MAX_FP_PER_PKT.
-void putPktAndFPsComp(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPStruct *fpa, uint16_t fpNum) {
+void putPktAndFPsComp(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPEntryB *fpa, uint16_t fpNum) {
 
 	int fpidx;
 	int emptyPos = PKTS_PER_FP;
@@ -665,7 +609,8 @@ void putPktAndFPsComp(unsigned char *pkt, uint16_t pktlen, uint32_t computedPack
 	int32_t pktIdx;
 
 	pthread_mutex_lock(&cerrojoComp);
-	pktIdx = (int32_t) (psComp.pktId % PKTSTORESIZE);
+	// pktIdx = (int32_t) (psComp.pktId % PKTSTORESIZE);
+	pktIdx = (int32_t) (psComp.pktId & (PKTSTORESIZE-1));
 	memcpy(psComp.pkts[pktIdx].pkt, pkt, pktlen);
 	psComp.pkts[pktIdx].len = pktlen;
 	psComp.pkts[pktIdx].hash = computedPacketHash;
@@ -717,7 +662,7 @@ void putPktAndFPsComp(unsigned char *pkt, uint16_t pktlen, uint32_t computedPack
 
 }
 
-void putPktAndFPsDesc(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPStruct *fpa, uint16_t fpNum) {
+void putPktAndFPsDesc(unsigned char *pkt, uint16_t pktlen, uint32_t computedPacketHash, FPEntryB *fpa, uint16_t fpNum) {
 
 	int fpidx;
 	int emptyPos = PKTS_PER_FP;
@@ -728,7 +673,8 @@ void putPktAndFPsDesc(unsigned char *pkt, uint16_t pktlen, uint32_t computedPack
 	int32_t pktIdx;
 
 	pthread_mutex_lock(&cerrojoDesc);
-	pktIdx = (int32_t) (psDesc.pktId % PKTSTORESIZE);
+	// pktIdx = (int32_t) (psDesc.pktId % PKTSTORESIZE);
+	pktIdx = (int32_t) (psDesc.pktId & (PKTSTORESIZE-1));
 	memcpy(psDesc.pkts[pktIdx].pkt, pkt, pktlen);
 	psDesc.pkts[pktIdx].len = pktlen;
 	psDesc.pkts[pktIdx].hash = computedPacketHash;

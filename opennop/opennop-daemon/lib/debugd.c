@@ -57,11 +57,11 @@
 #include<pthread.h>   
 
 uint64_t debugword  = 0;
-static int socket_desc , c;
-static struct sockaddr_in server , client;
-static pthread_t thread_id;
+//static int socket_desc , c;
+//static struct sockaddr_in server , client;
+//static pthread_t thread_id;
 
-static int zero = 0;
+//static int zero = 0;
 
 TRACECOMMAND trace_commands[] = {
         { "update_cache", UPDATE_CACHE_MASK, "UPDATE_CACHE_MASK", 0 },
@@ -73,7 +73,7 @@ TRACECOMMAND trace_commands[] = {
         { (char *)NULL, 0, (char*) NULL, 0 }
 };
 
-
+/*
 void *debugd_conn_process(void *arg) {
 	#define MAX_CMD_LEN 64
 	#define CMD_LEN 4
@@ -237,6 +237,8 @@ void init_debugd(void) {
 		abort();
 	}
 }
+
+*/
 
 TRACECOMMAND * find_trace_command (char *name) {
   register int i;

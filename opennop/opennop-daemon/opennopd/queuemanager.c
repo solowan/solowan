@@ -45,7 +45,6 @@
 #include "worker.h"
 #include "logger.h"
 
-int DEBUG_QUEUEMANAGER = false;
 
 int queue_packet(struct packet_head *queue, struct packet *thispacket) {
 	/* Lets add the  packet to a queue. */
@@ -76,7 +75,6 @@ int queue_packet(struct packet_head *queue, struct packet *thispacket) {
  */
 struct packet *dequeue_packet(struct packet_head *queue, int signal) {
 	struct packet *thispacket = NULL;
-	char message[LOGSZ];
 
 	/* Lets get the next packet from the queue. */
 	pthread_mutex_lock(&queue->lock); // Grab lock on the queue.
@@ -85,10 +83,7 @@ struct packet *dequeue_packet(struct packet_head *queue, int signal) {
 		pthread_cond_wait(&queue->signal, &queue->lock);
 	}
 
-	if (DEBUG_QUEUEMANAGER == true) {
-		sprintf(message, "Queue Manager: Queue has %d packets!\n", queue->qlen);
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_queman, "Queue Manager: Queue has %d packets!", queue->qlen);
 
 	if (queue->next != NULL) { // Make sure there is work.
 
@@ -99,8 +94,7 @@ struct packet *dequeue_packet(struct packet_head *queue, int signal) {
 		thispacket->prev = NULL;
 	} else {
 
-		sprintf(message, "Queue Manager: Fatal - Queue missing packet!\n");
-		logger(LOG_INFO, message);
+		LOGDEBUG(lc_queman, "Queue Manager: Fatal - Queue missing packet!");
 	}
 
 	pthread_mutex_unlock(&queue->lock); // Lose lock on the queue.

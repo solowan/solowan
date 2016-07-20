@@ -50,7 +50,7 @@ __u16 sessionhash(__u32 largerIP, __u16 largerIPPort, __u32 smallerIP,
 		__u16 smallerIPPort);
 void freemem(struct session_head *currentlist);
 struct session *insertsession(__u32 largerIP, __u16 largerIPPort,
-		__u32 smallerIP, __u16 smallerIPPort);
+		__u32 smallerIP, __u16 smallerIPPort, int qnum);
 struct session *getsession(__u32 largerIP, __u16 largerIPPort, __u32 smallerIP,
 		__u16 smallerIPPort);
 void clearsession(struct session *currentsession);
@@ -63,7 +63,7 @@ struct session_head *getsessionhead(int i);
 int cli_show_sessionss(int client_fd, char **parameters, int numparameters);
 int updateseq(__u32 largerIP, struct iphdr *iph, struct tcphdr *tcph,
 		struct session *thissession);
-int sourceisclient(__u32 largerIP, struct iphdr *iph, struct session *thisession);
+int sourceisclient(__u32 largerIP, struct iphdr *iph, struct session *thisession, int issyn);
 int saveacceleratorid(__u32 largerIP, __u32 acceleratorID, struct iphdr *iph, struct session *thissession);
 int checkseqnumber(__u32 largerIP, struct iphdr *iph, struct tcphdr *tcph, struct session *thissession);
 int updateseqnumber(__u32 largerIP, struct iphdr *iph, struct tcphdr *tcph, struct session *thissession);

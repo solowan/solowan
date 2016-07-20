@@ -1,0 +1,30 @@
+#!/bin/bash
+
+if [ $# -ne 1 ]
+  then
+    echo "Usage: make-solowan <repo>"
+    echo "       <repo>: 'pub' to compile and install /root/solowan-pub"
+    echo "               'priv' to compile and install /root/solowan-priv"
+    exit 1
+fi
+
+if [[ "$1" != 'priv' && "$1" != 'pub' ]]; then
+    echo "ERROR: argument must be priv or pub" 
+    exit 1
+fi
+
+
+echo "--"
+echo "-- Compiling and installing /root/solowan-$1..."
+echo "--"
+
+cd /root/solowan-priv/opennop/opennop-daemon
+make clean
+./autogen.sh
+./configure
+make
+make install
+#sed -i -e '/^memory/d' /etc/opennop/opennop.conf;
+#sed -i -e 's/^thrnum.*/thrnum 1/' /etc/opennop/opennop.conf;
+#echo "memory 24576000" >> /etc/opennop/opennop.conf;
+

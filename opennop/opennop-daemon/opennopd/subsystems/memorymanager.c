@@ -56,17 +56,11 @@ int initialfreepacketbuffers = 1000;
 int minfreepacketbuffers = 500;
 int packetbufferstoallocate = 100;
 
-int DEBUG_MEMORYMANAGER = false;
-
 void *memorymanager_function(void *dummyPtr) {
 	struct packet_head packetbufferstaging;
 	u_int32_t newpacketbuffers;
-	char message[LOGSZ];
 
-	if (DEBUG_MEMORYMANAGER == true) {
-		sprintf(message, "[OpenNOP]: Starting memory manager thread. \n");
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_memman, "Starting memory manager thread");
 
 	/*
 	 * Initialize the memory manager lock and signal.
@@ -132,11 +126,7 @@ void *memorymanager_function(void *dummyPtr) {
 				&freepacketbuffers);
 		allocatedpacketbuffers += newpacketbuffers;
 
-		if (DEBUG_MEMORYMANAGER == true) {
-			sprintf(message, "[OpenNOP]: Allocating %u new packet buffers. \n",
-					newpacketbuffers);
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_memman, "Allocating %u new packet buffers", newpacketbuffers);
 
 		/*
 		 * Ok finished allocating more packet buffers.  Lets do it again.
@@ -145,10 +135,7 @@ void *memorymanager_function(void *dummyPtr) {
 
 	}
 
-	if (DEBUG_MEMORYMANAGER == true) {
-		sprintf(message, "[OpenNOP]: Stopping memory manager thread. \n");
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_memman, "Stopping memory manager thread");
 	/*
 	 * We need to do memory cleanup here.
 	 */
@@ -173,12 +160,8 @@ int allocatefreepacketbuffers(struct packet_head *queue, int bufferstoallocate) 
 
 struct packet *get_freepacket_buffer(void) {
 	struct packet *thispacket = NULL;
-	char message[LOGSZ];
 
-	if (DEBUG_MEMORYMANAGER == true) {
-		sprintf(message, "[OpenNOP]: Requesting a packet buffer from pool. \n");
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_memman, "Requesting a packet buffer from pool");
 	/*
 	 * Check if any packet buffers are in the pool
 	 * get one if there are or allocate a new buffer if not.
@@ -187,35 +170,21 @@ struct packet *get_freepacket_buffer(void) {
 
 	if (freepacketbuffers.qlen > 0) {
 
-		if (DEBUG_MEMORYMANAGER == true) {
-			sprintf(message,
-					"[OpenNOP]: There are free packet buffers in the pool. \n");
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_memman, "There are free packet buffers in the pool");
 
 		if (freepacketbuffers.qlen < minfreepacketbuffers) {
 
-			if (DEBUG_MEMORYMANAGER == true) {
-				sprintf(message, "[OpenNOP]: Packet buffer pool is low. \n");
-				logger(LOG_INFO, message);
-			}
+			LOGDEBUG(lc_memman, "Packet buffer pool is low");
 			pthread_cond_signal(&mysignal); // Free packet buffers are low!
 		}
 		pthread_mutex_unlock(&freepacketbuffers.lock); // Lose packet buffer pool lock.
 		thispacket = dequeue_packet(&freepacketbuffers, false); // This uses its own lock.
 
-		if (DEBUG_MEMORYMANAGER == true) {
-			sprintf(message,
-					"[OpenNOP]: Allocated packet from packet buffer pool. \n");
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_memman, "Allocated packet from packet buffer pool");
 
 	} else {
 
-		if (DEBUG_MEMORYMANAGER == true) {
-			sprintf(message, "[OpenNOP]: Packet buffer pool is empty! \n");
-			logger(LOG_INFO, message);
-		}
+			LOGDEBUG(lc_memman, "Packet buffer pool is empty!");
 		pthread_mutex_unlock(&freepacketbuffers.lock); // Lose packet buffer pool lock.
 		pthread_cond_signal(&mysignal); // Free packet buffers are low!
 		thispacket = newpacket(); // Try to allocate a packet for the requester.
@@ -227,38 +196,24 @@ struct packet *get_freepacket_buffer(void) {
 	if (thispacket != NULL) {
 		memset(thispacket, 0, sizeof(struct packet));
 	} else {
-		sprintf(message, "[OpenNOP]: Failed to allocate packet! \n");
-		logger(LOG_INFO, message);
+		LOGERROR(lc_memman, "Failed to allocate packet! ");
 	}
 
-	if (DEBUG_MEMORYMANAGER == true) {
-		sprintf(message, "[OpenNOP]: Return packet to requester. \n");
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_memman, "Return packet to requester");
 
 	return thispacket;
 }
 
 int put_freepacket_buffer(struct packet *thispacket) {
 	int result;
-	char message[LOGSZ];
 
-	if (DEBUG_MEMORYMANAGER == true) {
-		sprintf(message, "[OpenNOP]: Returning a packet buffer to the pool. \n");
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_memman, "Returning a packet buffer to the pool");
 	result = queue_packet(&freepacketbuffers, thispacket);
 
-	if (DEBUG_MEMORYMANAGER == true) {
-
-		if (result < 0) {
-			sprintf(message,
-					"[OpenNOP]: Return packet buffer to the pool failed! \n");
-		} else {
-			sprintf(message,
-					"[OpenNOP]: Returned packet buffer to the pool. \n");
-		}
-		logger(LOG_INFO, message);
+	if (result < 0) {
+		LOGDEBUG(lc_memman, "Return packet buffer to the pool failed! ");
+	} else {
+		LOGDEBUG(lc_memman, "Returned packet buffer to the pool");
 	}
 	return result;
 }

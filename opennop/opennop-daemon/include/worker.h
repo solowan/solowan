@@ -92,13 +92,15 @@ struct workercounters {
 	__u64 bytesoutprevious;
 	__u64 bpsout; // Where the calculated bps are stored.
 
-	// fruiz new counters for storing information on different methods of redundancy elimination
+	// fruiz new counters for storing information on different methods of redundancy elimination, and a count of sequence number gaps
 	__u64 diffBytesCompression;
 	__u64 diffBytesDeduplication;
 	__u64 diffBytesIpTcpHeader;
 	__u64 packetsWithOnlyCompression;
 	__u64 packetsWithOnlyDeduplication;
 	__u64 packetsWithBothCompressionAndDeduplication;
+
+	__u64 sequenceGaps;
 
 	/*
 	 * Stores when the counters were last updated.
@@ -154,7 +156,7 @@ int deoptimize_packet(__u8 queue, struct packet *thispacket);
 void shutdown_workers();
 int cli_show_workers(int client_fd, char **parameters, int numparameters);
 void counter_updateworkermetrics(t_counterdata metric);
-struct session *closingsession(struct tcphdr *tcph, struct session *thissession);
+struct session *closingsession(struct iphdr *iph, struct tcphdr *tcph, struct session *thissession);
 
 pDeduplicator get_worker_compressor(int i);
 pDeduplicator get_worker_decompressor(int i);

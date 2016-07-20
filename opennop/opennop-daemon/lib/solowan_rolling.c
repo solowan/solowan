@@ -61,7 +61,6 @@ inline static void cacheAndCompressIfNeeded(pDeduplicator pd, unsigned char *pac
 	FPEntryB pktFps[MAX_FP_PER_PKT];
 	int i;
 	FPEntryB *fpp;
-	unsigned char message[LOGSZ];
 	struct timeval tiempo;
 	uint32_t computedPacketHash;
 	int orig, dest;
@@ -71,7 +70,7 @@ inline static void cacheAndCompressIfNeeded(pDeduplicator pd, unsigned char *pac
 	int ofs1 = 0;
 	int ofs2 = 0;
 	unsigned int fpNum;
-	FPStruct fptopkt[MAX_FP_PER_PKT];
+	FPEntryB fptopkt[MAX_FP_PER_PKT];
 	DictElement detectedRedundancy[MAX_FP_PER_PKT];
 	  
 	// Calculate FPs and packet hash
@@ -87,8 +86,7 @@ inline static void cacheAndCompressIfNeeded(pDeduplicator pd, unsigned char *pac
 
 	if (debugword & DEDUP_MASK) {
 		gettimeofday(&tiempo,NULL);
-		sprintf(message,"DEDUP processing at %d.%d hash %x len %d\n",tiempo.tv_sec,tiempo.tv_usec, computedPacketHash, pktlen);
-		logger(LOG_INFO, message);
+		LOGDEBUG(lc_dedup, "DEDUP processing at %ld.%ld hash %x len %d",tiempo.tv_sec,tiempo.tv_usec, computedPacketHash, pktlen);
 	}
 
 	// Default return values, no changes
@@ -100,8 +98,7 @@ inline static void cacheAndCompressIfNeeded(pDeduplicator pd, unsigned char *pac
 		pd->compStats.outputBytes += pktlen;
 		pthread_mutex_unlock(&pd->cerrojo);
 		if (debugword & DEDUP_MASK) {
-			sprintf(message,"DEDUP returning, short %d\n", pktlen);
-			logger(LOG_INFO, message);
+			LOGDEBUG(lc_dedup, "DEDUP returning, short %d", pktlen);
 		}
 		return;
 	}
@@ -206,8 +203,7 @@ inline static void cacheAndCompressIfNeeded(pDeduplicator pd, unsigned char *pac
 	 	 
 	  		if (debugword & DEDUP_MASK) {
 	  			gettimeofday(&tiempo,NULL);
-	  			sprintf(message,"[DEDUP] storing at %d.%d\n",tiempo.tv_sec,tiempo.tv_usec);
-	  			logger(LOG_INFO, message);
+	  			LOGDEBUG(lc_dedup, "[DEDUP] storing at %ld.%ld",tiempo.tv_sec,tiempo.tv_usec);
 	  		}
 		}
 
@@ -327,16 +323,14 @@ inline static void cacheAndCompressIfNeeded(pDeduplicator pd, unsigned char *pac
 	 	 
 	  		if (debugword & DEDUP_MASK) {
 	  			gettimeofday(&tiempo,NULL);
-	  			sprintf(message,"[DEDUP] storing at %d.%d\n",tiempo.tv_sec,tiempo.tv_usec);
-	  			logger(LOG_INFO, message);
+	  			LOGDEBUG(lc_dedup, "[DEDUP] storing at %ld.%ld",tiempo.tv_sec,tiempo.tv_usec);
 	  		}
 		}
 
 		for (i=fpNum-1; i >=0; i--) {
 			putFP(pd->fps, &pd->ps, pktFps[i].fp, currPktId, pktFps[i].offset, &pd->compStats);
 			if (debugword & DEDUP_MASK) {
-				sprintf(message,"[DEDUP] storing (empty) FP %" PRIx64 " for hash %x\n",pktFps[i].fp,computedPacketHash);
-				logger(LOG_INFO, message);
+				LOGDEBUG(lc_dedup, "[DEDUP] storing (empty) FP %" PRIx64 " for hash %x",pktFps[i].fp,computedPacketHash);
 			}
 		}
 		pd->compStats.lastPktId = currPktId;

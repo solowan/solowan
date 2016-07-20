@@ -75,13 +75,12 @@
 #include "memorymanager.h"
 #include "counters.h"
 #include "climanager.h"
+#include "tcpoptions.h"
 
 #include <errno.h> //For error results
 
 struct fetcher thefetcher;
 
-int DEBUG_FETCHER = false;
-int DEBUG_FETCHER_COUNTERS = false;
 int G_SCALEWINDOW = 7;
 
 struct nfq_handle *h;
@@ -100,9 +99,13 @@ int fetcher_callback(struct nfq_q_handle *hq, struct nfgenmsg *nfmsg,
 	__u32 largerIP, smallerIP, remoteID;
 	__u16 largerIPPort, smallerIPPort, mms;
 	int ret;
+	int incomingQueueNum;
 	unsigned char *originalpacket = NULL;
-	char message[LOGSZ];
 	char strIP[20];
+
+    // for debugging purposes
+    char saddr[INET_ADDRSTRLEN];
+    char daddr[INET_ADDRSTRLEN];
 
 	ph = nfq_get_msg_packet_hdr(nfa);
 
@@ -113,6 +116,7 @@ int fetcher_callback(struct nfq_q_handle *hq, struct nfgenmsg *nfmsg,
 	ret = nfq_get_payload(nfa, &originalpacket);
 
 	if (servicestate >= RUNNING) {
+
 		iph = (struct iphdr *) originalpacket;
 
 		thefetcher.metrics.bytesin += ntohs(iph->tot_len);
@@ -122,64 +126,113 @@ int fetcher_callback(struct nfq_q_handle *hq, struct nfgenmsg *nfmsg,
 		/* User could QUEUE UDP traffic, and we cannot accelerate UDP. */
 		if ((iph->protocol == IPPROTO_TCP) && (id != 0)) {
 
-			tcph = (struct tcphdr *) (((u_int32_t *) originalpacket)
-					+ iph->ihl);
+			tcph = (struct tcphdr *) (((u_int32_t *) originalpacket) + iph->ihl);
+
+            // for debugging purpose
+			inet_ntop(AF_INET, &iph->saddr, saddr, INET_ADDRSTRLEN);
+			inet_ntop(AF_INET, &iph->daddr, daddr, INET_ADDRSTRLEN);
 
 			/* Check what IP address is larger. */
 			sort_sockets(&largerIP, &largerIPPort, &smallerIP, &smallerIPPort,
 					iph->saddr, tcph->source, iph->daddr, tcph->dest);
 
-			remoteID = (__u32) __get_tcp_option((__u8 *)originalpacket,32);
+			// remoteID = (__u32) __get_tcp_option((__u8 *)originalpacket,32);
+			if (__get_tcp_option((__u8 *)originalpacket,32) ) {
+				unsigned char *tcpdata =  (unsigned char *) tcph + tcph->doff * 4; // Find starting location of the TCP data.
+				unsigned int incLen   = (__u16)(ntohs(iph->tot_len) - iph->ihl * 4) - tcph->doff * 4;
+				if (incLen < sizeof(OpennopHeader)) {
+					LOGERROR(lc_fetcher, "detected opennop option but incoming TCP data length less than opennop header length!!!!");
+					return nfq_set_verdict(hq, id, NF_DROP,0,NULL);
+				}
 
-			if (DEBUG_FETCHER == true)
-			{
-				inet_ntop(AF_INET, &remoteID, strIP, INET_ADDRSTRLEN);
-				sprintf(message, "Fetcher: The accellerator ID is:%s.\n", strIP);
-				logger(LOG_INFO, message);
-			}
+				pOpennopHeader oh = (pOpennopHeader) tcpdata;
+				remoteID = oh->opennopID;
+				incomingQueueNum = oh->queuenum;
+				if (oh->pattern != OPENNOP_PATTERN) {
+					LOGERROR(lc_fetcher, "option 32 found but bad pattern!!!");
+					return nfq_set_verdict(hq, id, NF_DROP,0,NULL);
+				}
+			} else remoteID = 0;
+
+			inet_ntop(AF_INET, &remoteID, strIP, INET_ADDRSTRLEN);
+			//LOGDEBUG(lc_fetcher, "The accellerator ID is:%s", strIP);
+
+			if (remoteID == 0) { 
+			    LOGTRACE(lc_fetcher, "Packet from CLIENT: SYN=%d/FIN=%d/ACK=%d/RST=%d, %s:%d->%s:%d, IP_Id=%d, NFQ_Id=%d, TCP_seq=%u, ACK_seq=%u, Total_len=%d, TCP_hlen=%d, IP_hlen=%d, Data_len=%d", 
+                  tcph->syn, tcph->fin, tcph->ack, tcph->rst, saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest), ntohs(iph->id), id, ntohl(tcph->seq), ntohl(tcph->ack_seq),
+                  ntohs(iph->tot_len), tcph->doff * 4, iph->ihl * 4, ntohs(iph->tot_len) - tcph->doff * 4 - iph->ihl * 4);
+            } else {
+			    LOGTRACE(lc_fetcher, "Packet from %s: SYN=%d/FIN=%d/ACK=%d/RST=%d, %s:%d->%s:%d, IP_Id=%d, NFQ_Id=%d, TCP_seq=%u, ACK_seq=%u, Total_len=%d, TCP_hlen=%d, IP_hlen=%d, Data_len=%d", 
+                  strIP, tcph->syn, tcph->fin, tcph->ack, tcph->rst, saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest), ntohs(iph->id), id, ntohl(tcph->seq), ntohl(tcph->ack_seq),
+                  ntohs(iph->tot_len), tcph->doff * 4, iph->ihl * 4, ntohs(iph->tot_len) - tcph->doff * 4 - iph->ihl * 4);
+            }    
+
+			thissession = getsession(largerIP, largerIPPort, smallerIP, smallerIPPort); // Check for an outstanding syn.
+
+				// if (thissession != NULL) {
+                //     LOGDEBUG(lc_sesman_check, "****** [SESSION MANAGER] LargerIPseq: %u SmallerIPseq %u, TCP_seq=%u", thissession->largerIPseq, thissession->smallerIPseq, ntohl(tcph->seq));
+                // }
 
 			/* Check if this a SYN packet to identify a new session. */
 			/* This packet will not be placed in a work queue, but  */
 			/* will be accepted here because it does not have any data. */
-			if ((tcph->syn == 1) && (tcph->ack == 0))
-			{
-				thissession = getsession(largerIP, largerIPPort, smallerIP, smallerIPPort); // Check for an outstanding syn.
+			//if ((tcph->syn == 1) && (tcph->ack == 0)) {
+            
+			if (tcph->syn == 1) {
+                
+                //
+                // SYN segment
+                //
+                if (tcph->ack == 0) {
+					if (remoteID == 0) { LOGDEBUG(lc_fetcher, "SYN from CLIENT: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) ); }
+        	        else               { LOGDEBUG(lc_fetcher, "SYN from %s: %s:%d->%s:%d", strIP, saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) ); }
+				} else {
+					if (remoteID == 0) { LOGDEBUG(lc_fetcher, "SYN+ACK from CLIENT: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) ); } 
+					else               { LOGDEBUG(lc_fetcher, "SYN+ACK from %s: %s:%d->%s:%d", strIP, saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) ); }
+				}
 
-				if (thissession == NULL)
-				{
-					thissession = insertsession(largerIP, largerIPPort, smallerIP, smallerIPPort); // Insert into sessions list.
+				if (thissession == NULL) {
+					if (remoteID != 0) thissession = insertsession(largerIP, largerIPPort, smallerIP, smallerIPPort, incomingQueueNum); // Insert into sessions list.
+					else thissession = insertsession(largerIP, largerIPPort, smallerIP, smallerIPPort, -1); // Insert into sessions list.
+					if (remoteID == 0) { LOGDEBUG(lc_fetcher, "New session from CLIENT created: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) ) }
+                    else               { LOGDEBUG(lc_fetcher, "New session from %s created: %s:%d->%s:%d", strIP, saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) ) };
 				}
 
 				/* We need to check for NULL to make sure */
 				/* that a record for the session was created */
-				if (thissession != NULL)
-				{
-
-					if (DEBUG_FETCHER == true)
-					{
-						sprintf(message, "Fetcher: The session manager created a new session.\n");
-						logger(LOG_INFO, message);
-					}
+				if (thissession != NULL) {
 
 					gettimeofday(&tv,NULL); // Get the time from hardware.
 					thissession->lastactive = tv.tv_sec; // Update the session timestamp.
 
-					sourceisclient(largerIP, iph, thissession);
+					sourceisclient(largerIP, iph, thissession, tcph->ack == 0);
 					updateseq(largerIP, iph, tcph, thissession);
 					updateseqnumber(largerIP, iph, tcph, thissession);
 
-					if (remoteID == 0)
-					{ // Accelerator ID was not found.
+					if (remoteID == 0) { // Accelerator ID was not found.
+
 						mms = __get_tcp_option((__u8 *)originalpacket,2);
 
-						if (mms > 60)
-						{
-							__set_tcp_option((__u8 *)originalpacket,2,4,mms - 60); // Reduce the MSS.
-							__set_tcp_option((__u8 *)originalpacket,32,6,localID); // Add the Accelerator ID to this packet.
-							/*
-							 * TCP Window Scale option seemed to break Win7 & Win8 Internet access.
-							 */
-							//__set_tcp_option((__u8 *)originalpacket,3,3,G_SCALEWINDOW); // Enable window scale.
+						if (mms > 68) {
+
+							if (__set_tcp_option((__u8 *)originalpacket,2,4,mms - 68) == -1) {// Reduce the MSS.
+								LOGERROR(lc_fetcher, "Cannot reduce MSS in 68, fetcher.c, packet is a SYN, IP datagram ID %x, current value of TCP doff %d",ntohs(iph->id), tcph->doff);
+							} 
+							if (__set_tcp_option((__u8 *)originalpacket,32,3,1) == -1) { // Add the Accelerator ID to this packet.
+								LOGERROR(lc_fetcher, "Cannot set opennop option to 1, fetcher.c, packet is a SYN, IP datagram ID %x, current value of TCP doff %d",ntohs(iph->id), tcph->doff);
+							} else {
+								unsigned char *tcpdata =  (unsigned char *) tcph + tcph->doff * 4; // Find starting location of the TCP data.
+								pOpennopHeader oh = (pOpennopHeader) tcpdata;
+								oh->opennopID = localID;
+								oh->seqNo = 0;
+								oh->compression = 0;
+								oh->deduplication = 0;
+								oh->reasonForNoOptimization = NOT_RELEVANT;
+								oh->pattern = OPENNOP_PATTERN;
+								oh->queuenum = thissession->queue;
+								iph->tot_len = htons(ntohs(iph->tot_len)+sizeof(OpennopHeader));
+								LOGTRACE(lc_fetcher, "Adding opennop header to SYN packet: IP total length=%d",ntohs(iph->tot_len));
+							}
 
 							saveacceleratorid(largerIP, localID, iph, thissession);
 
@@ -189,15 +242,25 @@ int fetcher_callback(struct nfq_q_handle *hq, struct nfgenmsg *nfmsg,
 							 */
 							checksum(originalpacket);
 						}
-					}
-					else
-					{ // Accelerator ID was found.
+					} else { // Accelerator ID was found.
 
+					    //LOGDEBUG(lc_fetcher, "New session from %s created: %s:%d->%s:%d", strIP, saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) );
+
+						if (__set_tcp_option((__u8 *)originalpacket,32,3,0) == -1) { 
+							LOGERROR(lc_fetcher, "Cannot set opennop option to 0, fetcher.c, packet is a SYN, IP datagram ID %x, current value of TCP doff %d",ntohs(iph->id), tcph->doff);
+						} else iph->tot_len = htons(ntohs(iph->tot_len)-sizeof(OpennopHeader));
+						checksum(originalpacket);
 						saveacceleratorid(largerIP, remoteID, iph, thissession);
 
 					}
 
-					thissession->state = TCP_SYN_SENT;
+                    if (tcph->ack == 0) {
+					    thissession->state = TCP_SYN_SENT;
+                        LOGDEBUG(lc_fetcher, "Session state set to TCP_SYN_SENT");
+                    } else {
+						thissession->state = TCP_ESTABLISHED;
+                        LOGDEBUG(lc_fetcher, "Session state set to TCP_ESTABLISHED");
+                    }
 				}
 
 				/* Before we return let increment the packets counter. */
@@ -206,83 +269,67 @@ int fetcher_callback(struct nfq_q_handle *hq, struct nfgenmsg *nfmsg,
 				/* This is the last step for a SYN packet. */
 				/* accept all SYN packets. */
 				return nfq_set_verdict(hq, id, NF_ACCEPT, ntohs(iph->tot_len), (unsigned char *)originalpacket);
-			}
-			else
-			{ // Packet was not a SYN packet.
-				thissession = getsession(largerIP, largerIPPort, smallerIP, smallerIPPort);
 
-				if (thissession != NULL)
-				{
+			// } else if (tcph->rst == 1) { 
+                
+                //
+                // RESET segment
+                //
+                // LOGDEBUG(lc_fetcher, "Session RESET %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest));
+                // clearsession(thissession);
+		// fruiz // 
+		// thissession = NULL;
+
+                /* Before we return let increment the packets counter. */
+				// thefetcher.metrics.packets++;
+			    // return nfq_set_verdict(hq, id, NF_ACCEPT, 0, NULL);
+
+
+//			} else if (tcph->fin == 1) {  
+//                
+//                //
+//                // FIN segment
+//                //
+//                LOGDEBUG(lc_fetcher, "FIN packet: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest));
+//				if (thissession != NULL) {
+//                    switch (thissession->state) {
+//                        case TCP_ESTABLISHED:
+//                                thissession->state = TCP_CLOSING;
+//                                LOGDEBUG(lc_fetcher, "Session half closed: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest));
+//                                break;
+//                        case TCP_CLOSING:
+//                                clearsession(thissession);
+//                                LOGDEBUG(lc_fetcher, "Session full closed: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest));
+//                                break;
+//                    }
+//                }
+//
+//                /* Before we return let increment the packets counter. */
+//				thefetcher.metrics.packets++;
+//	LOGDEBUG(lc_fetcher, "hq=%d, id=%d", hq, id);
+//                int res = nfq_set_verdict(hq, id, NF_ACCEPT, ntohs(iph->tot_len), (unsigned char *)originalpacket);
+//                LOGDEBUG(lc_fetcher, "Returning FIN packet %d", res);
+//			    //return nfq_set_verdict(hq, id, NF_ACCEPT, 0, NULL);
+//				//return nfq_set_verdict(hq, id, NF_ACCEPT, ntohs(iph->tot_len), (unsigned char *)originalpacket);
+//				return res;
+
+
+			} else { 
+
+                //
+                // DATA or FIN segment
+                //
+				if (thissession != NULL) { // DATA segment in an active session
+
+                    //LOGDEBUG(lc_sesman_check, "[SESSION MANAGER] LargerIPseq: %u SmallerIPseq %u", thissession->largerIPseq, thissession->smallerIPseq);
+
 					gettimeofday(&tv,NULL); // Get the time from hardware.
 					thissession->lastactive = tv.tv_sec; // Update the active timer.
 					thissession->deadcounter = 0; // Reset the dead counter.
 
-					/* Identify SYN/ACK packets that are part of a new */
-					/* session opening its connection. */
-					if ((tcph->syn == 1) && (tcph->ack == 1))
-					{
-
-						updateseq(largerIP, iph, tcph, thissession);
-						updateseqnumber(largerIP, iph, tcph, thissession);
-
-						if (remoteID == 0)
-						{ // Accelerator ID was not found.
-							mms = __get_tcp_option((__u8 *)originalpacket,2);
-
-							if (mms > 60)
-							{
-								__set_tcp_option((__u8 *)originalpacket,2,4,mms - 60); // Reduce the MSS.
-								__set_tcp_option((__u8 *)originalpacket,32,6,localID); // Add the Accelerator ID to this packet.
-								/*
-								 * TCP Window Scale option seemed to break Win7 & Win8 Internet access.
-								 */
-								//__set_tcp_option((__u8 *)originalpacket,3,3,G_SCALEWINDOW); // Enable window scale.
-
-								saveacceleratorid(largerIP, localID, iph, thissession);
-
-							}
-						}
-						else
-						{ // Accelerator ID was found.
-
-							saveacceleratorid(largerIP, remoteID, iph, thissession);
-
-						}
-						thissession->state = TCP_ESTABLISHED;
-
-						/*
-						 * Changing anything requires the IP and TCP
-						 * checksum to need recalculated.
-						 */
-						checksum(originalpacket);
-
-						/* Before we return let increment the packets counter. */
-						thefetcher.metrics.packets++;
-						return nfq_set_verdict(hq, id, NF_ACCEPT, ntohs(iph->tot_len), (unsigned char *)originalpacket);
-					}
-
-					/* This is session traffic of an active session. */
-					/* This packet will be placed in a queue to be processed */
-					if (DEBUG_FETCHER == true)
-					{
-						sprintf(message, "Fetcher: IP ID: %u.\n", ntohs(iph->id));
-						logger(LOG_INFO, message);
-					}
-
-					if (DEBUG_FETCHER == true)
-					{
-						if (remoteID == 0){
-							sprintf(message, "Fetcher: Sending the packet to a queue: Optimization.\n");
-						}else{
-							sprintf(message, "Fetcher: Sending the packet to a queue: Deoptimization.\n");
-						}
-						logger(LOG_INFO, message);
-					}
-
-					if (DEBUG_FETCHER == true)
-					{
-						sprintf(message, "Fetcher: Packet ID: %u.\n", id);
-						logger(LOG_INFO, message);
+					if (__get_tcp_option((__u8 *)originalpacket,32) == 2) { // Keepalive, can drop
+						LOGDEBUG(lc_fetcher, "Received keepalive: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) );
+						return nfq_set_verdict(hq, id, NF_DROP,0,NULL);
 					}
 
 					thispacket = get_freepacket_buffer();
@@ -291,81 +338,77 @@ int fetcher_callback(struct nfq_q_handle *hq, struct nfgenmsg *nfmsg,
 						save_packet(thispacket,hq, id, ret, (__u8 *)originalpacket, thissession);
 
 						if (remoteID == 0){
+						    LOGTRACE(lc_fetcher, "Packet sent to optimize");
 							optimize_packet(thissession->queue, thispacket);
-						}else{
+						} else {
+						    LOGTRACE(lc_fetcher, "Packet sent to deoptimize");
 							deoptimize_packet(thissession->queue, thispacket);
 						}
 
 					} else {
-						sprintf(message, "Fetcher: Failed getting packet buffer for optimization.\n");
-						logger(LOG_INFO, message);
+						LOGERROR(lc_fetcher, "Failed getting packet buffer for processing");
 					}
 					/* Before we return let increment the packets counter. */
 					thefetcher.metrics.packets++;
 					return 0;
-				}
-				else
-				{ // Session does not exist check if it is being tracked by another Accelerator.
 
-					if (DEBUG_FETCHER == true)
-					{
-						sprintf(message, "Fetcher: The session manager did not find a session.\n");
-						logger(LOG_INFO, message);
-					}
+				} else { // DATA segment and no active session exists
 
-					/* We only want to create new sessions for active sessions. */
-					/* This means we exclude anything accept ACK packets. */
 
-					if ((tcph->syn == 0) && (tcph->ack == 1) && (tcph->fin == 0))
-					{
+                    int data_len = ntohs(iph->tot_len) - tcph->doff * 4 - iph->ihl * 4;
+                    if (data_len > 0) {
+                        LOGDEBUG(lc_fetcher, "No session found for: SYN=%d/FIN=%d/ACK=%d/RST=%d, %s:%d->%s:%d, Opt_ID=%s, IP_Id=%d, NFQ_Id=%d, Total_len=%d, TCP_hlen=%d, IP_hlen=%d, Data_len=%d", 
+                                tcph->syn, tcph->fin, tcph->ack, tcph->rst, saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest), strIP, ntohs(iph->id), id, 
+                                ntohs(iph->tot_len), tcph->doff * 4, iph->ihl * 4, ntohs(iph->tot_len) - tcph->doff * 4 - iph->ihl * 4);
+                    }
 
-						if (remoteID != 0)
-						{ // Detected remote Accelerator its safe to add this session.
-							thissession = insertsession(largerIP, largerIPPort, smallerIP, smallerIPPort); // Insert into sessions list.
+    				/* We only want to create new sessions for active sessions. */
+    				/* This means we exclude anything accept ACK packets. */
 
-							if (thissession != NULL)
-							{ // Test to make sure the session was added.
-								thissession->state = TCP_ESTABLISHED;
+    				if (tcph->ack == 1) {
 
-								saveacceleratorid(largerIP, remoteID, iph, thissession);
+    					if (remoteID != 0) { // Detected remote Accelerator so it is safe to add this session.
+    						thissession = insertsession(largerIP, largerIPPort, smallerIP, smallerIPPort, incomingQueueNum); // Insert into sessions list.
 
-								thispacket = get_freepacket_buffer();
+   							if (thissession != NULL) { // Test to make sure the session was added.
+					            
+                                LOGDEBUG(lc_fetcher, "Created NEW session for: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) );
 
-								if (thispacket != NULL){
-									save_packet(thispacket,hq, id, ret, (__u8 *)originalpacket, thissession);
-									updateseqnumber(largerIP, iph, tcph, thissession); //Update the stored TCP sequence number
-									deoptimize_packet(thissession->queue, thispacket);
-								} else {
-									sprintf(message, "Fetcher: Failed getting packet buffer for deoptimization.\n");
-									logger(LOG_INFO, message);
-								}
-								/* Before we return let increment the packets counter. */
-								thefetcher.metrics.packets++;
-								return 0;
-							}
-						}
-					}
+							    thissession->state = TCP_ESTABLISHED;
+
+							    saveacceleratorid(largerIP, remoteID, iph, thissession);
+
+							    thispacket = get_freepacket_buffer();
+
+							    if (thispacket != NULL){
+								    save_packet(thispacket,hq, id, ret, (__u8 *)originalpacket, thissession);
+								    updateseqnumber(largerIP, iph, tcph, thissession); //Update the stored TCP sequence number
+								    deoptimize_packet(thissession->queue, thispacket);
+							    } else {
+								    LOGERROR(lc_fetcher, "Failed getting packet buffer for deoptimization.");
+							    }
+							    /* Before we return let increment the packets counter. */
+							    thefetcher.metrics.packets++;
+							    return 0;
+                            } else {
+                                LOGERROR(lc_fetcher, "Failed to create session for: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) );
+                            }
+                        }
+				    }
 					/* Before we return let increment the packets counter. */
 					thefetcher.metrics.packets++;
+                    //LOGERROR(lc_fetcher, "Unknown packet: %s:%d->%s:%d", saddr, ntohs(tcph->source), daddr, ntohs(tcph->dest) );
 					return nfq_set_verdict(hq, id, NF_ACCEPT, ntohs(iph->tot_len), (unsigned char *)originalpacket);
-				}
+			    }
 			}
-		}
-		else
-		{ /* Packet was not a TCP Packet or ID was 0. */
+		} else { /* Packet was not a TCP Packet or ID was 0. */
 			/* Before we return let increment the packets counter. */
 			thefetcher.metrics.packets++;
 			return nfq_set_verdict(hq, id, NF_ACCEPT, 0, NULL);
 		}
-	}
-	else
-	{ /* Daemon is not in a running state so return packets. */
+	} else { /* Daemon is not in a running state so return packets. */
 
-		if (DEBUG_FETCHER == true)
-		{
-			sprintf(message, "Fetcher: The service is not running.\n");
-			logger(LOG_INFO, message);
-		}
+		LOGTRACE(lc_fetcher, "The service is not running.");
 		/* Before we return let increment the packets counter. */
 		thefetcher.metrics.packets++;
 		return nfq_set_verdict(hq, id, NF_ACCEPT, 0, NULL);
@@ -381,147 +424,84 @@ int fetcher_callback(struct nfq_q_handle *hq, struct nfgenmsg *nfmsg,
 void *fetcher_function(void *dummyPtr) {
 	long sys_pagesofmem = 0; // The pages of memory in this system.
 	long sys_pagesize = 0; // The size of each page in bytes.
-	long sys_bytesofmem = 0; // The total bytes of memory in the system.
-	long nfqneededbuffer = 0; // Store how much memory the NFQ needs.
+	//long sys_bytesofmem = 0; // The total bytes of memory in the system.
+	//long nfqneededbuffer = 0; // Store how much memory the NFQ needs.
 	long nfqlength = 0;
 	int rv = 0;
 	char buf[BUFSIZE]
 	         __attribute__ ((aligned));
-	char message[LOGSZ];
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: Initialzing opening library handle.\n");
-		logger(LOG_INFO, message);
-	}
+	LOGTRACE(lc_fetcher, "Initializing NFQ: getting library handle");
 
 	h = nfq_open();
 
 	if (!h) {
 
-		if (DEBUG_FETCHER == true) {
-			sprintf(message,
-					"Fetcher: Initialzing error opening library handle.\n");
-			logger(LOG_INFO, message);
-		}
+		LOGERROR(lc_fetcher, "NFQ init error getting library handle.");
 		exit(EXIT_FAILURE);
 	}
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message,
-				"Fetcher: Initialzing unbinding existing nf_queue for AF_INET.\n");
-		logger(LOG_INFO, message);
-	}
+	LOGTRACE(lc_fetcher, "Initializing NFQ: unbinding existing nf_queue for AF_INET.");
 
 	if (nfq_unbind_pf(h, AF_INET) < 0) {
 
-		if (DEBUG_FETCHER == true) {
-			sprintf(message, "Fetcher: Initialzing error unbinding nf_queue.\n");
-			logger(LOG_INFO, message);
-		}
+		LOGERROR(lc_fetcher, "NFQ init error when unbinding nf_queue.");
 		exit(EXIT_FAILURE);
 	}
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: Initialzing binding to nf_queue.\n");
-		logger(LOG_INFO, message);
-	}
+	LOGTRACE(lc_fetcher, "Initializing NFQ: binding to nf_queue.");
 
 	if (nfq_bind_pf(h, AF_INET) < 0) {
 
-		if (DEBUG_FETCHER == true) {
-			sprintf(message,
-					"Fetcher: Initialzing error binding to nf_queue.\n");
-			logger(LOG_INFO, message);
-		}
+		LOGERROR(lc_fetcher, "NFQ init error when binding to nf_queue.");
 		exit(EXIT_FAILURE);
 	}
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: Initialzing binding to queue '0'.\n");
-		logger(LOG_INFO, message);
-	}
+	LOGTRACE(lc_fetcher, "Initializing NFQ: binding to queue '0'");
 	qh = nfq_create_queue(h, 0, &fetcher_callback, NULL);
 
 	if (!qh) {
 
-		if (DEBUG_FETCHER == true) {
-			sprintf(message,
-					"Fetcher: Initialzing error binding to queue '0'.\n");
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_fetcher, "NFQ init error when binding to queue '0'");
 		exit(EXIT_FAILURE);
 	}
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: Initialzing setting copy mode.\n");
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_fetcher, "Initializing NFQ: setting copy mode");
 
 	if (nfq_set_mode(qh, NFQNL_COPY_PACKET, BUFSIZE) < 0) { // range/BUFSIZE was 0xffff
 
-		if (DEBUG_FETCHER == true) {
-			sprintf(message, "Fetcher: Initialzing error setting copy mode.\n");
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_fetcher, "NFQ init error when setting copy mode");
 		exit(EXIT_FAILURE);
 	}
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: Initialzing setting queue length.\n");
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_fetcher, "Initialzing NFQ: setting queue length.");
 
 	sys_pagesofmem = sysconf(_SC_PHYS_PAGES);
 	sys_pagesize = sysconf(_SC_PAGESIZE);
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: There are %li pages of memory.\n",
-				sys_pagesofmem);
-		logger(LOG_INFO, message);
-		sprintf(message, "Fetcher: There are %li bytes per page.\n",
-				sys_pagesize);
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_fetcher, "There are %li pages of memory and %li bytes/page", sys_pagesofmem, sys_pagesize);
 
 	if ((sys_pagesofmem <= 0) || (sys_pagesize <= 0)) {
 
-		if (DEBUG_FETCHER == true) {
-			sprintf(message,
-					"Fetcher: Initialzing error failed checking system memory.\n");
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_fetcher, "NFQ init error when checking system memory");
 		exit(EXIT_FAILURE);
 	}
 
-	sys_bytesofmem = (sys_pagesofmem * sys_pagesize);
-	nfqneededbuffer = (sys_bytesofmem / 100) * 10;
+	//sys_bytesofmem = (sys_pagesofmem * sys_pagesize);
+	//nfqneededbuffer = (sys_bytesofmem / 100) * 10;
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: NFQ needs %li bytes of memory.\n",
-				nfqneededbuffer);
-		logger(LOG_INFO, message);
-	}
+	//LOGDEBUG(lc_fetcher, "NFQ needs %li bytes of memory (%li MB)", nfqneededbuffer, (nfqneededbuffer / 1024) / 1024);
 	//nfqlength = nfqneededbuffer / BUFSIZE;
-	nfqlength = 4096;
+	// nfqlength = 4096;
+	nfqlength = 16384;
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: NFQ length will be %li.\n", nfqlength);
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_fetcher, "NFQ length will be %li", nfqlength);
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: NFQ cache  will be %ld.MB\n", ((nfqlength
-				* 2048) / 1024) / 1024);
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_fetcher, "NFQ cache  will be %ld MB", ((nfqlength * 2048) / 1024) / 1024);
 
 	if (nfq_set_queue_maxlen(qh, nfqlength) < 0) {
 
-		if (DEBUG_FETCHER == true) {
-			sprintf(message,
-					"Fetcher: Initialzing error setting queue length.\n");
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_fetcher, "NFQ init error when setting queue length.");
 		exit(EXIT_FAILURE);
 	}
 	nfnl_rcvbufsiz(nfq_nfnlh(h), nfqlength * BUFSIZE);
@@ -533,10 +513,7 @@ void *fetcher_function(void *dummyPtr) {
 	while ((servicestate >= RUNNING) && ((rv = recv(fd, buf, sizeof(buf), 0))
 			&& rv >= 0)) {
 
-		if (DEBUG_FETCHER == true) {
-			sprintf(message, "Fetcher: Received a packet.\n");
-			logger(LOG_INFO, message);
-		}
+		//LOGTRACE(lc_fetcher, "Packet received a packet");
 
 		/*
 		 * This will execute the callback_function for each ip packet
@@ -552,32 +529,22 @@ void *fetcher_function(void *dummyPtr) {
 	 * to begin shutting down because of the queue failure.
 	 */
 	if (rv == -1) {
-		sprintf(message, "ERROR FETCHER: error code %d\n", errno);
-		logger(LOG_INFO, message);
+		LOGERROR(lc_fetcher, "ERROR FETCHER: error code %d", errno);
 		servicestate = STOPPING;
-		sprintf(message, "Fetcher: Stopping last rv value: %i.\n", rv);
-		logger(LOG_INFO, message);
+		LOGERROR(lc_fetcher, "Stopping last rv value: %i.", rv);
 	}
 
-	if (DEBUG_FETCHER == true) {
-		sprintf(message, "Fetcher: Stopping unbinding from queue '0'.\n");
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_fetcher, "Unbinding from queue '0'");
 
 	nfq_destroy_queue(qh);
 
 #ifdef INSANE
 
-	if (DEBUG_FETCHER == true)
-	{
-		sprintf(message, "Fetcher: Fatal unbinding from queue '0'.\n");
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_fetcher, "Fatal unbinding from queue '0'.");
 	nfa_unbind_pf(h, AF_INET);
 #endif
 
-	sprintf(message, "Fetcher: Stopping closing library handle.\n");
-	logger(LOG_INFO, message);
+	LOGERROR(lc_fetcher, "NFQ release: closing library handle.");
 	nfq_close(h);
 	return NULL;
 }
@@ -638,14 +605,9 @@ int cli_show_fetcher(int client_fd, char **parameters, int numparameters) {
 
 void counter_updatefetchermetrics(t_counterdata data) {
 	struct fetchercounters *metrics;
-	char message[LOGSZ];
 	__u32 counter;
 
-	if (DEBUG_FETCHER_COUNTERS == true)
-	{
-		sprintf(message, "Fetcher: Updating metrics!\n");
-		logger(LOG_INFO, message);
-	}
+	//LOGTRACE(lc_fetcher, "Updating metrics!");
 
 	metrics = (struct fetchercounters*) data;
 	counter = metrics->packets;

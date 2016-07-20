@@ -34,6 +34,7 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <time.h>
 #include <syslog.h>
 #include <netinet/in.h>
 #include <linux/types.h>
@@ -41,15 +42,40 @@
 #include "logger.h"
 #include "opennopd.h"
 
+log4c_category_t* lc_main    = NULL;
+log4c_category_t* lc_config  = NULL;
+log4c_category_t* lc_cli     = NULL;
+log4c_category_t* lc_fetcher = NULL;
+log4c_category_t* lc_worker  = NULL;
+log4c_category_t* lc_worker_retx = NULL;
+log4c_category_t* lc_worker_opt  = NULL;
+log4c_category_t* lc_worker_cli  = NULL;
+log4c_category_t* lc_worker_counters  = NULL;
+log4c_category_t* lc_comp    = NULL;
+log4c_category_t* lc_dedup   = NULL;
+log4c_category_t* lc_tcpopts = NULL;
+log4c_category_t* lc_sesman  = NULL;
+log4c_category_t* lc_sesman_insert = NULL;
+log4c_category_t* lc_sesman_get    = NULL;
+log4c_category_t* lc_sesman_remove = NULL;
+log4c_category_t* lc_sesman_update = NULL;
+log4c_category_t* lc_sesman_check  = NULL;
+log4c_category_t* lc_memman = NULL;
+log4c_category_t* lc_counters = NULL;
+log4c_category_t* lc_queman = NULL;
+
 /*
  * Logs a message to either the screen or to syslog.
  */
-void logger(int LOG_TYPE, char *message)
-{
-	if (isdaemon == true){
-		syslog(LOG_INFO, message);
-	}
-	else{
-		printf(message);
-	}	
+void logger(int LOG_TYPE, char *message) {
+
+    struct timeval tval;
+    gettimeofday(&tval,NULL); /* get current cal time */
+
+    if (isdaemon == true){
+	    syslog(LOG_INFO, "[%ld.%ld] %s",tval.tv_sec, tval.tv_usec, message);
+    } else{
+	    printf("[%ld.%ld] %s",tval.tv_sec, tval.tv_usec, message);
+    }	
 }
+

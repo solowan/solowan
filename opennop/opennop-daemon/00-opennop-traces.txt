@@ -1,0 +1,70 @@
+
+Solowan log traces
+------------------
+
+Solowan uses log4c library (http://log4c.sourceforge.net) to manage traces. The level of traces is controlled by an XML configuration file named /etc/opennop/log4rc.
+
+Four different levels of traces are generated in Solowan:
+ - ERROR
+ - INFO
+ - DEBUG
+ - TRACE
+
+Traces are generated using the macros defined in include/logger.h: LOGERROR, LOGINFO, LOGDEBUG and LOGTRACE. For example:
+
+  LOGINFO(lc_main, "Started all threads.");
+
+And several modules are defined to allow customizing the log traces per module:
+  opennop.main
+  opennop.config
+  opennop.cli
+  opennop.fetcher
+  opennop.worker
+  opennop.worker.opt
+  opennop.worker.cli
+  opennop.worker.counters
+  opennop.dedup
+  opennop.tcpopts
+  opennop.sesman
+  opennop.sesman.insert
+  opennop.sesman.get
+  opennop.sesman.remove
+  opennop.sesman.update
+  opennop.sesman.check
+  opennop.memman
+  opennop.counters
+  opennop.queman
+
+To start solowan using log4c traces support, the directory location of the configuration file has to be provided in a enviroment variable:
+
+  LOG4C_RCPATH=/etc/opennop/ opennopd/opennopd
+
+The level and granularity of traces can be controlled by modifying the log4crc file. In principle, only the lines including <category> tags have to be modified.
+
+See the example configurations below.
+
+Trace example configurations
+----------------------------
+
+* Print only info messages to standard out:
+
+<category name="opennop" priority="info" appender="stdout"/>
+
+* Print only info messages to a log file (/var/log/solowan.log):
+
+<category name="opennop" priority="info" appender="solowanlog"/>
+
+* Print info messages of all modules to stdout, as well as debug messages from fetcher module: 
+
+<category name="opennop"         priority="info" appender="stdout"/>
+<category name="opennop.fetcher" priority="debug" appender="stdout"/>
+
+Note: due to a bug in log4c library, in this case, some of the log messages are duplicated. Use the 'uniq' linux command to avoid duplicates when consulting the traces, for example:
+
+tail -F /var/log/solowan.log | uniq
+
+* Print info messages of all modules to /var/log/solowan.log, as well as debug messages from fetcher module: 
+
+<category name="opennop"         priority="info" appender="solowanlog"/>
+<category name="opennop.fetcher" priority="debug" appender="solowanlog"/>
+

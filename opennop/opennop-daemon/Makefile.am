@@ -13,7 +13,7 @@ sbin_PROGRAMS = opennopd/opennopd
 
 opennop_opennop_SOURCES = \
 	opennop/opennop.c
-opennop_opennop_LDADD = -lutil -lreadline -lpthread
+opennop_opennop_LDADD = -lutil -lreadline -lpthread -llog4c
 
 opennopd_opennopd_SOURCES = \
 	lib/quicklz.c lib/hash.c lib/01dedup.c lib/as.c lib/debugd.c \

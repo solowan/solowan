@@ -74,12 +74,6 @@
 
 struct session_head sessiontable[SESSIONBUCKETS]; // Setup the session hashtable.
 
-int DEBUG_SESSIONMANAGER_CHECK = false;
-int DEBUG_SESSIONMANAGER_UPDATE = false;
-
-int DEBUG_SESSIONMANAGER_INSERT = false;
-int DEBUG_SESSIONMANAGER_GET = false;
-int DEBUG_SESSIONMANAGER_REMOVE = false;
 
 /*
  * Calculates the hash of a session provided the IP addresses, and ports.
@@ -127,16 +121,14 @@ void freemem(struct session_head *currentlist) {
 }
 
 /* 
- * Inserts a new sessio.n into the sessions linked list.
+ * Inserts a new session into the sessions linked list.
  * Will either use an empty slot, or create a new session in the list.
  */
-struct session *insertsession(__u32 largerIP, __u16 largerIPPort,
-		__u32 smallerIP, __u16 smallerIPPort) {
+struct session *insertsession(__u32 largerIP, __u16 largerIPPort, __u32 smallerIP, __u16 smallerIPPort, int qnum) {
 	struct session *newsession = NULL;
 	int i;
 	__u16 hash = 0;
 	__u8 queuenum = 0;
-	char message[LOGSZ];
 
 	hash = sessionhash(largerIP, smallerIP, largerIPPort, smallerIPPort);
 
@@ -144,23 +136,21 @@ struct session *insertsession(__u32 largerIP, __u16 largerIPPort,
 	 * What queue will the packets for this session go to?
 	 */
 
-	queuenum = 0;
+	if (qnum == -1) {
+		queuenum = 0;
 
-	for (i = 0; i < get_workers(); i++) {
+	    for (i = 0; i < get_workers(); i++) {
 
-		if (DEBUG_SESSIONMANAGER_INSERT == true) {
-			sprintf(message, "Session Manager: Queue #%d has %d sessions.\n",
-					i, get_worker_sessions(i));
-			logger(LOG_INFO, message);
-		}
+		    LOGDEBUG(lc_sesman_insert, "Session Manager: Queue #%d has %d sessions.", i, get_worker_sessions(i));
 
-		if (get_worker_sessions(queuenum) > get_worker_sessions(i)) {
+		    if (get_worker_sessions(queuenum) > get_worker_sessions(i)) {
 
-			if (i < get_workers()) {
-				queuenum = i;
-			}
-		}
-	}
+			    if (i < get_workers()) {
+				    queuenum = i;
+			    }
+		    }
+        }
+	} else queuenum = qnum;
 
 // New behaviour: a hash depending on source and destination IP addresses is computed. The allocated queue depends on this hash.
 //	unsigned char hashflow;
@@ -169,12 +159,7 @@ struct session *insertsession(__u32 largerIP, __u16 largerIPPort,
 //	queuenum = hashflow % get_workers();
 // End new behaviour
 
-	if (DEBUG_SESSIONMANAGER_INSERT == true) {
-		sprintf(message,
-				"Session Manager: Assigning session to queue #: %d!\n",
-				queuenum);
-		logger(LOG_INFO, message);
-	}
+	LOGDEBUG(lc_sesman_insert, "Session Manager: Assigning session to queue #: %d!", queuenum);
 
 	newsession = calloc(1, sizeof(struct session)); // Allocate a new session.
 
@@ -206,12 +191,7 @@ struct session *insertsession(__u32 largerIP, __u16 largerIPPort,
 		 */
 		pthread_mutex_lock(&sessiontable[hash].lock); // Grab lock on the session bucket.
 
-		if (DEBUG_SESSIONMANAGER_INSERT == true) {
-			sprintf(message,
-					"Session Manager: Assigning session to bucket #: %u!\n",
-					hash);
-			logger(LOG_INFO, message);
-		}
+        LOGDEBUG(lc_sesman_insert, "Session Manager: Assigning session to bucket #: %u!", hash);
 
 		if (sessiontable[hash].qlen == 0) { // Check if any session are in this bucket.
 			sessiontable[hash].next = newsession; // Session Head next will point to the new session.
@@ -224,13 +204,7 @@ struct session *insertsession(__u32 largerIP, __u16 largerIPPort,
 
 		sessiontable[hash].qlen += 1; // Need to increase the session count in this session bucket.	
 
-		if (DEBUG_SESSIONMANAGER_INSERT == true) {
-			sprintf(
-					message,
-					"Session Manager: There are %u sessions in this bucket now.\n",
-					sessiontable[hash].qlen);
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_sesman_insert, "Session Manager: There are %u sessions in this bucket now.", sessiontable[hash].qlen);
 
 		pthread_mutex_unlock(&sessiontable[hash].lock); // Lose lock on session bucket.
 
@@ -248,24 +222,15 @@ struct session *getsession(__u32 largerIP, __u16 largerIPPort, __u32 smallerIP,
 		__u16 smallerIPPort) {
 	struct session *currentsession = NULL;
 	__u16 hash = 0;
-	char message[LOGSZ];
 
 	hash = sessionhash(largerIP, smallerIP, largerIPPort, smallerIPPort);
 
-	if (DEBUG_SESSIONMANAGER_GET == true) {
-		sprintf(message,
-				"Session Manager: Seaching for session in bucket #: %u!\n",
-				hash);
-		logger(LOG_INFO, message);
-	}
+	LOGTRACE(lc_sesman_get, "Session Manager: Searching for session in bucket #: %u!", hash);
 	if (sessiontable[hash].next != NULL) { // Testing for sessions in the list.
 		currentsession = sessiontable[hash].next; // There is at least one session in the list.
 	} else { // No sessions were in this list.
 
-		if (DEBUG_SESSIONMANAGER_GET == true) {
-			sprintf(message, "Session Manager: No session was found.\n");
-			logger(LOG_INFO, message);
-		}
+		LOGTRACE(lc_sesman_get, "Session Manager: No session was found.");
 		return NULL;
 	}
 
@@ -276,10 +241,7 @@ struct session *getsession(__u32 largerIP, __u16 largerIPPort, __u32 smallerIP,
 				&& (currentsession->smallerIP == smallerIP)
 				&& (currentsession->smallerIPPort == smallerIPPort)) {
 
-			if (DEBUG_SESSIONMANAGER_GET == true) {
-				sprintf(message, "Session Manager: A session was found.\n");
-				logger(LOG_INFO, message);
-			}
+			LOGTRACE(lc_sesman_get, "Session Manager: A session was found.");
 			return currentsession; // Session matched so save session.
 		} else {
 
@@ -287,20 +249,14 @@ struct session *getsession(__u32 largerIP, __u16 largerIPPort, __u32 smallerIP,
 				currentsession = currentsession->next;
 			} else { // No more sessions so no session exists.
 
-				if (DEBUG_SESSIONMANAGER_GET == true) {
-					sprintf(message, "Session Manager: No session was found.\n");
-					logger(LOG_INFO, message);
-				}
+				LOGTRACE(lc_sesman_get, "Session Manager: No session was found.");
 				return NULL;
 			}
 		}
 	}
 
 	// Something went very bad if this runs.
-	if (DEBUG_SESSIONMANAGER_GET == true) {
-		sprintf(message, "Session Manager: FATAL! No session was found.\n");
-		logger(LOG_INFO, message);
-	}
+	LOGTRACE(lc_sesman_get, "Session Manager: FATAL! No session was found.");
 	return NULL;
 }
 
@@ -309,19 +265,13 @@ struct session *getsession(__u32 largerIP, __u16 largerIPPort, __u32 smallerIP,
  */
 void clearsession(struct session *currentsession) {
 	__u16 hash = 0;
-	char message[LOGSZ];
 
 	if (currentsession != NULL) { // Make sure session is not NULL.
 
-		if (DEBUG_SESSIONMANAGER_REMOVE == true) {
-			hash = sessionhash(currentsession->largerIP,
-					currentsession->smallerIP, currentsession->largerIPPort,
-					currentsession->smallerIPPort);
-			sprintf(message,
-					"Session Manager: Removing session from bucket #: %u!\n",
-					hash);
-			logger(LOG_INFO, message);
-		}
+		hash = sessionhash(currentsession->largerIP,
+				currentsession->smallerIP, currentsession->largerIPPort,
+				currentsession->smallerIPPort);
+		LOGDEBUG(lc_sesman_remove, "Session Manager: Removing session from bucket #: %u!", hash);
 
 		pthread_mutex_lock(&currentsession->head->lock); // Grab lock on the session bucket.
 
@@ -349,13 +299,7 @@ void clearsession(struct session *currentsession) {
 
 		pthread_mutex_unlock(&currentsession->head->lock); // Lose lock on session bucket.
 
-		if (DEBUG_SESSIONMANAGER_REMOVE == true) {
-			sprintf(
-					message,
-					"Session Manager: There are %u sessions in this bucket now.\n",
-					currentsession->head->qlen);
-			logger(LOG_INFO, message);
-		}
+		LOGDEBUG(lc_sesman_remove, "Session Manager: There are %u sessions in this bucket now.", currentsession->head->qlen);
 
 		/*
 		 * Decrease the counter for number of sessions assigned to this worker.
@@ -395,13 +339,11 @@ void initialize_sessiontable() {
 
 void clear_sessiontable() {
 	int i;
-	char message[LOGSZ];
 
 	for (i = 0; i < SESSIONBUCKETS; i++) { // ITCP_SEQ_NUMBERSnitialize all the slots in the hashtable to NULL.
 		if (sessiontable[i].next != NULL) {
 			freemem(&sessiontable[i]);
-			sprintf(message, "Exiting: Freeing sessiontable %d!\n", i);
-			logger(LOG_INFO, message);
+			LOGINFO(lc_sesman, "Exiting: Freeing sessiontable %d!", i);
 		}
 
 	}
@@ -423,6 +365,7 @@ int cli_show_sessionss(int client_fd, char **parameters, int numparameters) {
 	char col5[30];
 	char col6[30];
 	char end[30];
+	int sess_found = 0;
 
 	sprintf(
 			msg,
@@ -440,7 +383,16 @@ int cli_show_sessionss(int client_fd, char **parameters, int numparameters) {
 	/*
 	 * Check each index of the session table for any sessions.
 	 */
+
+    //int j = 0;
+
 	for (i = 0; i < SESSIONBUCKETS; i++) {
+
+        //j++;
+        //if (j == 10000) {
+	    //    LOGDEBUG(lc_fetcher, "line %d...", i);
+        //    j = 0;
+        //}
 
 		/*
 		 * Skip any index of the sessiontable that has no sessions.
@@ -448,11 +400,14 @@ int cli_show_sessionss(int client_fd, char **parameters, int numparameters) {
 		if (sessiontable[i].next != NULL) {
 			currentsession = sessiontable[i].next;
 
+            sess_found = 1;
 			/*
 			 * Work through all sessions in that index and print them out.
 			 */
 			while (currentsession != NULL) {
 
+				//if (currentsession->client != NULL)  { LOGDEBUG(lc_fetcher, "client not null"); } else { LOGDEBUG(lc_fetcher, "client null"); }
+				//if (currentsession->server != NULL)  { LOGDEBUG(lc_fetcher, "server not null"); } else { LOGDEBUG(lc_fetcher, "server null"); }
 				/*
 				 * TODO:
 				 * This will only show the session if we know what IPs are client & server.
@@ -466,19 +421,15 @@ int cli_show_sessionss(int client_fd, char **parameters, int numparameters) {
 					strcpy(msg, "");
 					sprintf(col1, "|  %-7i", i);
 					strcat(msg, col1);
-					inet_ntop(AF_INET, currentsession->client, temp,
-							INET_ADDRSTRLEN);
+					inet_ntop(AF_INET, currentsession->client, temp, INET_ADDRSTRLEN);
 					sprintf(col2, "| %-15s", temp);
 					strcat(msg, col2);
-					sprintf(col3, "|   %-10i", ntohs(
-							currentsession->largerIPPort));
+					sprintf(col3, "|   %-10i", ntohs( currentsession->largerIPPort));
 					strcat(msg, col3);
-					inet_ntop(AF_INET, currentsession->server, temp,
-							INET_ADDRSTRLEN);
+					inet_ntop(AF_INET, currentsession->server, temp, INET_ADDRSTRLEN);
 					sprintf(col4, "| %-15s", temp);
 					strcat(msg, col4);
-					sprintf(col5, "|   %-10i", ntohs(
-							currentsession->smallerIPPort));
+					sprintf(col5, "|   %-10i", ntohs( currentsession->smallerIPPort));
 					strcat(msg, col5);
 
 					if ((((currentsession->largerIPAccelerator == localID)
@@ -497,12 +448,20 @@ int cli_show_sessionss(int client_fd, char **parameters, int numparameters) {
 					strcat(msg, end);
 					cli_send_feedback(client_fd, msg);
 
-					currentsession = currentsession->next;
+					//currentsession = currentsession->next;
 				}
+				currentsession = currentsession->next;
 			}
+
 		}
 
 	}
+    if (!sess_found) {
+        sprintf( msg, "None active sessions\n");
+	    cli_send_feedback(client_fd, msg);
+    }
+    sprintf( msg, "--------------------------------------------------------------------------------------\n");
+	cli_send_feedback(client_fd, msg);
 
 	return 0;
 }
@@ -529,14 +488,23 @@ int updateseq(__u32 largerIP, struct iphdr *iph, struct tcphdr *tcph,
 	return -1; // Had a problem!
 }
 
-int sourceisclient(__u32 largerIP, struct iphdr *iph, struct session *thissession) {
+int sourceisclient(__u32 largerIP, struct iphdr *iph, struct session *thissession, int issyn ) {
+
+    // For debugging
+    char smaller_addr [INET_ADDRSTRLEN];
+    char larger_addr [INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &thissession->largerIP, larger_addr, INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, &thissession->smallerIP, smaller_addr, INET_ADDRSTRLEN);
 
 	if ((largerIP != 0) && (iph != NULL) && (thissession != NULL)) {
 
-		if (iph->saddr == largerIP) { // See what IP this is coming from.
+		if ( ((iph->saddr == largerIP) &&  issyn ) || ((iph->daddr == largerIP) && (!issyn))) { // See what IP this is coming from.
+			LOGDEBUG(lc_sesman, "Session client set to %s and server to %s", larger_addr, smaller_addr);
 			thissession->client = &thissession->largerIP;
 			thissession->server = &thissession->smallerIP;
 		} else {
+			//LOGDEBUG(lc_fetcher, "Set session client to %x and server to %x", thissession->smallerIP , thissession->largerIP);
+			LOGDEBUG(lc_sesman, "Session client set to %s and server to %s", smaller_addr, larger_addr);
 			thissession->client = &thissession->smallerIP;
 			thissession->server = &thissession->largerIP;
 		}
@@ -563,68 +531,50 @@ int saveacceleratorid(__u32 largerIP, __u32 acceleratorID, struct iphdr *iph, st
 }
 
 int updateseqnumber(__u32 largerIP, struct iphdr *iph, struct tcphdr *tcph, struct session *thissession){
-	char message[LOGSZ];
 
 	if ((largerIP != 0) && (iph != NULL) && (tcph != NULL) && (thissession != NULL)) {
 
 		if (iph->saddr == largerIP) { // See what IP this is coming from.
 
-			if (DEBUG_SESSIONMANAGER_UPDATE == true) {
-				sprintf(message, "[SESSION MANAGER] Update LargerIpSeq %u\n", ntohl(tcph->seq));
-				logger(LOG_INFO, message);
-			}
+			LOGTRACE(lc_sesman_update, "Update LargerIpSeq %u", ntohl(tcph->seq));
 			thissession->largerIPseq = ntohl(tcph->seq);
 			return 0;
 		} else {
 
-			if (DEBUG_SESSIONMANAGER_UPDATE == true) {
-				sprintf(message, "[SESSION MANAGER] Update SmallerIPseq %u\n", ntohl(tcph->seq));
-				logger(LOG_INFO, message);
-			}
+			LOGTRACE(lc_sesman_update, "Update SmallerIPseq %u", ntohl(tcph->seq));
 			thissession->smallerIPseq = ntohl(tcph->seq);
 			return 0;
 		}
 	}
 
-	if (DEBUG_SESSIONMANAGER_UPDATE == true) {
-		sprintf(message, "[SESSION MANAGER] ERROR updating seq number!!!\n");
-		logger(LOG_INFO, message);
-	}
+	LOGERROR(lc_sesman_update, "ERROR updating seq number!!!");
 	return -1;
 }
 
 int checkseqnumber(__u32 largerIP, struct iphdr *iph, struct tcphdr *tcph, struct session *thissession){
-	char message[LOGSZ];
 
 	if ((largerIP != 0) && (iph != NULL) && (tcph != NULL) && (thissession != NULL)) {
 
+		//LOGTRACE(lc_sesman_check, "saddr=%x, daddr=%x, LargerIPseq=%u, SmallerIPseq=%u, largerIP=%x", 
+        //                           iph->saddr, iph->daddr, thissession->largerIPseq, thissession->smallerIPseq, largerIP);
 		if (iph->saddr == largerIP) { // See what IP this is coming from.
 //			if (((ntohl(tcph->seq) - thissession->largerIPseq) % TCP_SEQ_NUMBERS) < HALF_TCP_SEQ_NUMBER) {
 			/*ToDo Change this condition: it will not work if the sequence
 			 * number restarts from	the beginning inside the same connection*/
 			if(ntohl(tcph->seq) < thissession->largerIPseq){
-				if (DEBUG_SESSIONMANAGER_CHECK == true) {
-					sprintf(message, "[SESSION MANAGER] Out of order - LargerIPseq: Rcv %u Stored %u\n", ntohl(tcph->seq), thissession->largerIPseq);
-					logger(LOG_INFO, message);
-				}
+				LOGTRACE(lc_sesman_check, "Out of order - LargerIPseq: Rcv %u Stored %u", ntohl(tcph->seq), thissession->largerIPseq);
 				return 0;
 			}
 			return 1;
 		} else {
 //			if (((ntohl(tcph->seq) - thissession->smallerIPseq) % TCP_SEQ_NUMBERS) < HALF_TCP_SEQ_NUMBER ) {
 			if(ntohl(tcph->seq) < thissession->smallerIPseq ){
-				if (DEBUG_SESSIONMANAGER_CHECK == true) {
-					sprintf(message, "[SESSION MANAGER] SmallerIPseq: Received Seq %u Stored Seq%u\n", ntohl(tcph->seq), thissession->smallerIPseq);
-					logger(LOG_INFO, message);
-				}
+				LOGTRACE(lc_sesman_check, "Out of order - SmallerIPseq: Received Seq %u Stored Seq%u", ntohl(tcph->seq), thissession->smallerIPseq);
 				return 0;
 			}
 			return 1;
 		}
 	}
-	if (DEBUG_SESSIONMANAGER_CHECK == true) {
-		sprintf(message, "[SESSION MANAGER] ERROR!!!\n");
-		logger(LOG_INFO, message);
-	}
+	LOGERROR(lc_sesman_check, "ERROR!!!");
 	return 0;
 }

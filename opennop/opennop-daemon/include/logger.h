@@ -37,8 +37,47 @@
 #define _GNU_SOURCE
 
 #include <syslog.h>
+#include <stdio.h>
+
+#include <stdbool.h>
 
 #define LOGSZ     256
 
 void logger(int LOG_TYPE, char *message);
+
+
+#include "log4c.h"
+
+extern log4c_category_t* lc_main;
+extern log4c_category_t* lc_config;
+extern log4c_category_t* lc_cli;
+extern log4c_category_t* lc_fetcher;
+extern log4c_category_t* lc_worker;
+extern log4c_category_t* lc_worker_retx;
+extern log4c_category_t* lc_worker_opt;
+extern log4c_category_t* lc_worker_cli;
+extern log4c_category_t* lc_worker_counters;
+extern log4c_category_t* lc_comp;
+extern log4c_category_t* lc_dedup;
+extern log4c_category_t* lc_tcpopts;
+extern log4c_category_t* lc_sesman;
+extern log4c_category_t* lc_sesman_insert;
+extern log4c_category_t* lc_sesman_get;
+extern log4c_category_t* lc_sesman_remove;
+extern log4c_category_t* lc_sesman_update;
+extern log4c_category_t* lc_sesman_check;
+extern log4c_category_t* lc_memman;
+extern log4c_category_t* lc_counters;
+extern log4c_category_t* lc_queman;
+
+#define LOGINFO(lc, ...)   log4c_category_log(lc, LOG4C_PRIORITY_INFO, ## __VA_ARGS__);fflush(stdout);
+#define LOGDEBUG(lc, ...)  log4c_category_log(lc, LOG4C_PRIORITY_DEBUG, ## __VA_ARGS__);fflush(stdout);
+#define LOGERROR(lc, ...)  log4c_category_log(lc, LOG4C_PRIORITY_ERROR, ## __VA_ARGS__);fflush(stdout);
+#define LOGTRACE(lc, ...)  log4c_category_log(lc, LOG4C_PRIORITY_TRACE, ## __VA_ARGS__);fflush(stdout);
+
+struct timeval tval;
+char message[LOGSZ];
+
+//#define LOGINFO(lc, ...)   if (isdaemon == true) { gettimeofday(&tval,NULL); sprintf(message, ## __VA_ARGS__ ); syslog(LOG_INFO, "[%ld.%ld] %s",tval.tv_sec, tval.tv_usec, message ); } else { log4c_category_log(lc, LOG4C_PRIORITY_INFO, ## __VA_ARGS__); fflush(stdout); }
+
 #endif

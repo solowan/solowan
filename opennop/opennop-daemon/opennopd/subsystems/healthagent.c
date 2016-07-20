@@ -126,7 +126,8 @@ int get_family_id(int sd)
                 char buf[256];
         } ans;
 
-        int id;
+        //int id;  DFC
+        int id = -1;
         struct nlattr *na;
         int rep_len;
 
@@ -150,14 +151,14 @@ int get_family_id(int sd)
         if (sendto_fd(sd, (char *) &family_req, family_req.n.nlmsg_len) < 0)
 		return -1;
     
-	rep_len = recv(sd, &ans, sizeof(ans), 0);
+    	rep_len = recv(sd, &ans, sizeof(ans), 0);
         if (rep_len < 0){
         	
         	if (DEBUG_HEALTHAGENT == true){
 				perror("recv");
         	}
-		return -1;
-	}
+		    return -1;
+    	}
 
         /* Validate response message */
         if (!NLMSG_OK((&ans.n), rep_len)){
@@ -165,8 +166,8 @@ int get_family_id(int sd)
         	if (DEBUG_HEALTHAGENT == true){
 				fprintf(stderr, "invalid reply message\n");
         	}
-		return -1;
-	}
+		    return -1;
+	    }
 
         if (ans.n.nlmsg_type == NLMSG_ERROR) { /* error */
         	
@@ -226,12 +227,13 @@ int send_echo()
 
 	/*send message*/
 	struct sockaddr_nl nladdr;
-        int r;
+        //int r;
         
         memset(&nladdr, 0, sizeof(nladdr));
         nladdr.nl_family = AF_NETLINK;
     
-	r = sendto(nl_sd, (char *)&req, req.n.nlmsg_len, 0,  
+	    //r = sendto(nl_sd, (char *)&req, req.n.nlmsg_len, 0,  
+	    sendto(nl_sd, (char *)&req, req.n.nlmsg_len, 0,  
 			  (struct sockaddr *) &nladdr, sizeof(nladdr));
 	
 	int rep_len = recv(nl_sd, &ans, sizeof(ans), 0);
@@ -306,11 +308,12 @@ int send_hb()
 
 	/*send message*/
 	struct sockaddr_nl nladdr;
-        int r;
-        memset(&nladdr, 0, sizeof(nladdr));
-        nladdr.nl_family = AF_NETLINK;
+    //int r;
+    memset(&nladdr, 0, sizeof(nladdr));
+    nladdr.nl_family = AF_NETLINK;
     
-	r = sendto(nl_sd, (char *)&req, req.n.nlmsg_len, 0,  
+	//r = sendto(nl_sd, (char *)&req, req.n.nlmsg_len, 0,  
+	sendto(nl_sd, (char *)&req, req.n.nlmsg_len, 0,  
 			  (struct sockaddr *) &nladdr, sizeof(nladdr));
 	
 	close(nl_sd);
