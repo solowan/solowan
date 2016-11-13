@@ -1,4 +1,4 @@
-SoloWAN Project
+#SoloWAN Project
 
 OpenNOP-SoloWAN is an enhanced version of the Open Network Optimization Platform (OpenNOP). It implements a modern dictionary based compression algorithm to add deduplication capabilities to OpenNOP. 
 
