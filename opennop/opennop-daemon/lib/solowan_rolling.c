@@ -339,6 +339,8 @@ inline static void cacheAndCompressIfNeeded(pDeduplicator pd, unsigned char *pac
 			if (*optlen < pktlen) pd->compStats.compressedPackets++;
 			assert (*optlen <= MAX_PKT_SIZE());
 			assert (orig <= MAX_PKT_SIZE());
+		} else {
+			pd->compStats.outputBytes += pktlen;
 		}
 		pthread_mutex_unlock(&pd->cerrojo);
         }
