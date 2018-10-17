@@ -39,7 +39,7 @@ Installation
     To install OpenNOP-SoloWAN:
 
     - Download code from git repository:
-        git clone https://github.com/centeropenmiddleware/solowan.git
+        git clone https://github.com/solowan/solowan.git
 
     - Install required packages:
         + For Debian/Ubuntu:
